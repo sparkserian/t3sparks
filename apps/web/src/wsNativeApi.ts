@@ -116,8 +116,15 @@ export function createWsNativeApi(): NativeApi {
   const api: NativeApi = {
     dialogs: {
       pickFolder: async () => {
-        if (!window.desktopBridge) return null;
-        return window.desktopBridge.pickFolder();
+        if (window.desktopBridge) {
+          return window.desktopBridge.pickFolder();
+        }
+        const manualPath = window.prompt(
+          "Browser preview cannot open a native folder picker. Paste the full folder path instead.",
+          "",
+        );
+        const trimmedPath = manualPath?.trim();
+        return trimmedPath && trimmedPath.length > 0 ? trimmedPath : null;
       },
       confirm: async (message) => {
         if (window.desktopBridge) {
@@ -140,6 +147,7 @@ export function createWsNativeApi(): NativeApi {
         }),
     },
     projects: {
+      createDirectory: (input) => transport.request(WS_METHODS.projectsCreateDirectory, input),
       searchEntries: (input) => transport.request(WS_METHODS.projectsSearchEntries, input),
       writeFile: (input) => transport.request(WS_METHODS.projectsWriteFile, input),
     },
@@ -159,6 +167,12 @@ export function createWsNativeApi(): NativeApi {
         // Avoid false negatives and let the browser handle popup policy.
         window.open(url, "_blank", "noopener,noreferrer");
       },
+    },
+    convex: {
+      status: (input) => transport.request(WS_METHODS.convexStatus, input),
+    },
+    gemini: {
+      status: (input) => transport.request(WS_METHODS.geminiStatus, input),
     },
     git: {
       pull: (input) => transport.request(WS_METHODS.gitPull, input),

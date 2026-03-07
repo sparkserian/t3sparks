@@ -13,13 +13,22 @@ import type {
   ServerProviderStatus,
   ServerProviderStatusState,
 } from "@t3tools/contracts";
-import { Effect, Layer, Option, Result, Stream } from "effect";
+import { Effect, Layer, Option, Result, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
+import { readConfiguredGeminiAuth, resolveGeminiCli } from "../../gemini/geminiCli.ts";
 import { ProviderHealth, type ProviderHealthShape } from "../Services/ProviderHealth";
 
 const DEFAULT_TIMEOUT_MS = 4_000;
 const CODEX_PROVIDER = "codex" as const;
+const GEMINI_PROVIDER = "gemini" as const;
+
+class GeminiProviderHealthError extends Schema.TaggedErrorClass<GeminiProviderHealthError>()(
+  "GeminiProviderHealthError",
+  {
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
 
 // ── Pure helpers ────────────────────────────────────────────────────
 
@@ -290,14 +299,65 @@ export const checkCodexProviderStatus: Effect.Effect<
   } satisfies ServerProviderStatus;
 });
 
+export const checkGeminiProviderStatus: Effect.Effect<ServerProviderStatus, never> = Effect.tryPromise({
+  try: async () => {
+    const checkedAt = new Date().toISOString();
+    const [resolution, auth] = await Promise.all([resolveGeminiCli(), readConfiguredGeminiAuth()]);
+
+    if (!resolution.available) {
+      return {
+        provider: GEMINI_PROVIDER,
+        status: "error" as const,
+        available: false,
+        authStatus: "unknown" as const,
+        checkedAt,
+        message: resolution.message ?? "Gemini CLI is unavailable.",
+      } satisfies ServerProviderStatus;
+    }
+
+    const status: ServerProviderStatusState =
+      auth.authStatus === "unauthenticated" || resolution.installed === false ? "warning" : "ready";
+    const message =
+      auth.authStatus === "unauthenticated"
+        ? `Gemini needs sign-in. Run \`${resolution.setupCommand}\` and choose "Login with Google".`
+        : resolution.installed === false
+          ? resolution.message
+          : undefined;
+
+    return {
+      provider: GEMINI_PROVIDER,
+      status,
+      available: true,
+      authStatus: auth.authStatus,
+      checkedAt,
+      ...(message ? { message } : {}),
+    } satisfies ServerProviderStatus;
+  },
+  catch: (cause) => new GeminiProviderHealthError({ cause }),
+}).pipe(
+  Effect.match({
+    onFailure: () =>
+      ({
+        provider: GEMINI_PROVIDER,
+        status: "warning" as const,
+        available: true,
+        authStatus: "unknown" as const,
+        checkedAt: new Date().toISOString(),
+        message: "Could not determine Gemini provider status.",
+      }) satisfies ServerProviderStatus,
+    onSuccess: (status) => status,
+  }),
+);
+
 // ── Layer ───────────────────────────────────────────────────────────
 
 export const ProviderHealthLive = Layer.effect(
   ProviderHealth,
   Effect.gen(function* () {
     const codexStatus = yield* checkCodexProviderStatus;
+    const geminiStatus = yield* checkGeminiProviderStatus;
     return {
-      getStatuses: Effect.succeed([codexStatus]),
+      getStatuses: Effect.succeed([codexStatus, geminiStatus]),
     } satisfies ProviderHealthShape;
   }),
 );

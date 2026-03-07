@@ -28,10 +28,12 @@ import { type Thread } from "../types";
 import { derivePendingApprovals } from "../session-logic";
 import { gitRemoveWorktreeMutationOptions, gitStatusQueryOptions } from "../lib/gitReactQuery";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
+import { requestOpenOnboarding } from "../onboarding";
 import { readNativeApi } from "../nativeApi";
 import { type DraftThreadEnvMode, useComposerDraftStore } from "../composerDraftStore";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { toastManager } from "./ui/toast";
+import { NewProjectDialog } from "./NewProjectDialog";
 import {
   getDesktopUpdateActionError,
   getDesktopUpdateButtonTooltip,
@@ -290,6 +292,7 @@ export default function Sidebar() {
   const queryClient = useQueryClient();
   const removeWorktreeMutation = useMutation(gitRemoveWorktreeMutationOptions({ queryClient }));
   const [addingProject, setAddingProject] = useState(false);
+  const [newProjectDialogOpen, setNewProjectDialogOpen] = useState(false);
   const [newCwd, setNewCwd] = useState("");
   const [isPickingFolder, setIsPickingFolder] = useState(false);
   const [isAddingProject, setIsAddingProject] = useState(false);
@@ -476,7 +479,7 @@ export default function Sidebar() {
   );
 
   const addProjectFromPath = useCallback(
-    async (rawCwd: string) => {
+    async (rawCwd: string, options?: { title?: string }) => {
       const cwd = rawCwd.trim();
       if (!cwd || isAddingProject) return;
       const api = readNativeApi();
@@ -498,7 +501,7 @@ export default function Sidebar() {
 
       const projectId = newProjectId();
       const createdAt = new Date().toISOString();
-      const title = cwd.split(/[/\\]/).findLast(isNonEmptyString) ?? cwd;
+      const title = options?.title?.trim() || (cwd.split(/[/\\]/).findLast(isNonEmptyString) ?? cwd);
       const projectCreated = await api.orchestration
         .dispatchCommand({
           type: "project.create",
@@ -517,6 +520,13 @@ export default function Sidebar() {
       finishAddingProject();
     },
     [focusMostRecentThreadForProject, handleNewThread, isAddingProject, projects],
+  );
+
+  const handleCreateProjectFromHome = useCallback(
+    async (projectPath: string, title: string) => {
+      await addProjectFromPath(projectPath, { title });
+    },
+    [addProjectFromPath],
   );
 
   const handleAddProject = () => {
@@ -975,7 +985,7 @@ export default function Sidebar() {
       <div className="flex min-w-0 flex-1 items-center gap-1 mt-2 ml-1">
         <T3Wordmark />
         <span className="truncate text-sm font-medium tracking-tight text-muted-foreground">
-          Code
+          Sparks
         </span>
         <span className="rounded-full bg-muted/50 px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.18em] text-muted-foreground/60">
           {APP_STAGE_LABEL}
@@ -986,6 +996,12 @@ export default function Sidebar() {
 
   return (
     <>
+      <NewProjectDialog
+        open={newProjectDialogOpen}
+        onOpenChange={setNewProjectDialogOpen}
+        projectHomePath={appSettings.projectHomePath}
+        onProjectCreated={handleCreateProjectFromHome}
+      />
       {isElectron ? (
         <>
           <SidebarHeader className="drag-region h-[52px] flex-row items-center gap-2 px-4 py-0 pl-[82px]">
@@ -1336,13 +1352,39 @@ export default function Sidebar() {
             </div>
           </>
         ) : (
-          <button
-            type="button"
-            className="flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-border py-2 text-xs text-muted-foreground/70 transition-colors duration-150 hover:border-ring hover:text-muted-foreground"
-            onClick={() => setAddingProject(true)}
-          >
-            + Add project
-          </button>
+          <div className="space-y-2">
+            {appSettings.projectHomePath.trim().length > 0 ? (
+              <button
+                type="button"
+                className="flex w-full items-center justify-center gap-1 rounded-md bg-primary px-2 py-2 text-xs font-medium text-primary-foreground transition-colors duration-150 hover:bg-primary/90"
+                onClick={() => setNewProjectDialogOpen(true)}
+              >
+                + New project
+              </button>
+            ) : null}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="flex-1 rounded-md border border-dashed border-border py-2 text-xs text-muted-foreground/70 transition-colors duration-150 hover:border-ring hover:text-muted-foreground"
+                onClick={() => setAddingProject(true)}
+              >
+                Add project
+              </button>
+              <button
+                type="button"
+                className="flex-1 rounded-md border border-border py-2 text-xs text-muted-foreground/80 transition-colors duration-150 hover:bg-secondary"
+                onClick={requestOpenOnboarding}
+              >
+                Setup guide
+              </button>
+            </div>
+            {appSettings.projectHomePath.trim().length === 0 ? (
+              <p className="px-1 text-[10px] leading-relaxed text-muted-foreground/70">
+                Save a project home in the setup guide if you want T3 Sparks to create new project
+                folders for you.
+              </p>
+            ) : null}
+          </div>
         )}
       </SidebarFooter>
     </>

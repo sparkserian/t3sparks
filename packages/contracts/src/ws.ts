@@ -20,6 +20,8 @@ import {
   GitRunStackedActionInput,
   GitStatusInput,
 } from "./git";
+import { ConvexStatusInput } from "./convex";
+import { GeminiStatusInput } from "./gemini";
 import {
   TerminalClearInput,
   TerminalCloseInput,
@@ -29,7 +31,11 @@ import {
   TerminalWriteInput,
 } from "./terminal";
 import { KeybindingRule } from "./keybindings";
-import { ProjectSearchEntriesInput, ProjectWriteFileInput } from "./project";
+import {
+  ProjectCreateDirectoryInput,
+  ProjectSearchEntriesInput,
+  ProjectWriteFileInput,
+} from "./project";
 import { OpenInEditorInput } from "./editor";
 
 // ── WebSocket RPC Method Names ───────────────────────────────────────
@@ -41,9 +47,16 @@ export const WS_METHODS = {
   projectsRemove: "projects.remove",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
+  projectsCreateDirectory: "projects.createDirectory",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
+
+  // Convex methods
+  convexStatus: "convex.status",
+
+  // Gemini methods
+  geminiStatus: "gemini.status",
 
   // Git methods
   gitPull: "git.pull",
@@ -103,9 +116,16 @@ const WebSocketRequestBody = Schema.Union([
   // Project Search
   tagRequestBody(WS_METHODS.projectsSearchEntries, ProjectSearchEntriesInput),
   tagRequestBody(WS_METHODS.projectsWriteFile, ProjectWriteFileInput),
+  tagRequestBody(WS_METHODS.projectsCreateDirectory, ProjectCreateDirectoryInput),
 
   // Shell methods
   tagRequestBody(WS_METHODS.shellOpenInEditor, OpenInEditorInput),
+
+  // Convex methods
+  tagRequestBody(WS_METHODS.convexStatus, ConvexStatusInput),
+
+  // Gemini methods
+  tagRequestBody(WS_METHODS.geminiStatus, GeminiStatusInput),
 
   // Git methods
   tagRequestBody(WS_METHODS.gitPull, GitPullInput),

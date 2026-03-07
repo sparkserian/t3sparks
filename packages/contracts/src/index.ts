@@ -8,6 +8,8 @@ export * from "./ws";
 export * from "./keybindings";
 export * from "./server";
 export * from "./git";
+export * from "./convex";
+export * from "./gemini";
 export * from "./orchestration";
 export * from "./editor";
 export * from "./project";

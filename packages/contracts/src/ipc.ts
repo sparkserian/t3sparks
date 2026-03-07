@@ -14,7 +14,11 @@ import type {
   GitStatusInput,
   GitStatusResult,
 } from "./git";
+import type { ConvexStatusInput, ConvexStatusResult } from "./convex";
+import type { GeminiStatusInput, GeminiStatusResult } from "./gemini";
 import type {
+  ProjectCreateDirectoryInput,
+  ProjectCreateDirectoryResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectWriteFileInput,
@@ -108,6 +112,7 @@ export interface NativeApi {
     onEvent: (callback: (event: TerminalEvent) => void) => () => void;
   };
   projects: {
+    createDirectory: (input: ProjectCreateDirectoryInput) => Promise<ProjectCreateDirectoryResult>;
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
   };
@@ -127,6 +132,12 @@ export interface NativeApi {
     pull: (input: GitPullInput) => Promise<GitPullResult>;
     status: (input: GitStatusInput) => Promise<GitStatusResult>;
     runStackedAction: (input: GitRunStackedActionInput) => Promise<GitRunStackedActionResult>;
+  };
+  convex: {
+    status: (input: ConvexStatusInput) => Promise<ConvexStatusResult>;
+  };
+  gemini: {
+    status: (input: GeminiStatusInput) => Promise<GeminiStatusResult>;
   };
   contextMenu: {
     show: <T extends string>(

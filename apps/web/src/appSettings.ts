@@ -6,6 +6,7 @@ import { getDefaultModel, getModelOptions, normalizeModelSlug } from "@t3tools/s
 const APP_SETTINGS_STORAGE_KEY = "t3code:app-settings:v1";
 const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
+const MAX_PROJECT_HOME_PATH_LENGTH = 4096;
 export const APP_SERVICE_TIER_OPTIONS = [
   {
     value: "auto",
@@ -28,6 +29,7 @@ const AppServiceTierSchema = Schema.Literals(["auto", "fast", "flex"]);
 const MODELS_WITH_FAST_SUPPORT = new Set(["gpt-5.4"]);
 const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
   codex: new Set(getModelOptions("codex").map((option) => option.slug)),
+  gemini: new Set(getModelOptions("gemini").map((option) => option.slug)),
 };
 
 const AppSettingsSchema = Schema.Struct({
@@ -44,6 +46,15 @@ const AppSettingsSchema = Schema.Struct({
   codexServiceTier: AppServiceTierSchema.pipe(Schema.withConstructorDefault(() => Option.some("auto"))),
   customCodexModels: Schema.Array(Schema.String).pipe(
     Schema.withConstructorDefault(() => Option.some([])),
+  ),
+  customGeminiModels: Schema.Array(Schema.String).pipe(
+    Schema.withConstructorDefault(() => Option.some([])),
+  ),
+  projectHomePath: Schema.String.check(Schema.isMaxLength(MAX_PROJECT_HOME_PATH_LENGTH)).pipe(
+    Schema.withConstructorDefault(() => Option.some("")),
+  ),
+  hasSeenOnboarding: Schema.Boolean.pipe(
+    Schema.withConstructorDefault(() => Option.some(false)),
   ),
 });
 export type AppSettings = typeof AppSettingsSchema.Type;
@@ -108,6 +119,7 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
   return {
     ...settings,
     customCodexModels: normalizeCustomModelSlugs(settings.customCodexModels, "codex"),
+    customGeminiModels: normalizeCustomModelSlugs(settings.customGeminiModels, "gemini"),
   };
 }
 
@@ -211,7 +223,16 @@ function parsePersistedSettings(value: string | null): AppSettings {
   }
 
   try {
-    return normalizeAppSettings(Schema.decodeSync(Schema.fromJsonString(AppSettingsSchema))(value));
+    const parsed = JSON.parse(value);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return DEFAULT_APP_SETTINGS;
+    }
+    return normalizeAppSettings(
+      Schema.decodeSync(AppSettingsSchema)({
+        ...DEFAULT_APP_SETTINGS,
+        ...parsed,
+      }),
+    );
   } catch {
     return DEFAULT_APP_SETTINGS;
   }

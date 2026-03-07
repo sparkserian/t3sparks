@@ -48,6 +48,7 @@ import {
   useVirtualizer,
 } from "@tanstack/react-virtual";
 import { gitBranchesQueryOptions, gitCreateWorktreeMutationOptions } from "~/lib/gitReactQuery";
+import { geminiStatusQueryOptions } from "~/lib/geminiReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { serverConfigQueryOptions, serverQueryKeys } from "~/lib/serverReactQuery";
 
@@ -114,6 +115,8 @@ import {
   type TurnDiffTreeNode,
 } from "../lib/turnDiffTree";
 import BranchToolbar from "./BranchToolbar";
+import ConvexControl from "./ConvexControl";
+import GeminiSetupDialog from "./GeminiSetupDialog";
 import GitActionsControl from "./GitActionsControl";
 import {
   isOpenFavoriteEditorShortcut,
@@ -762,23 +765,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   const sessionProvider = activeThread?.session?.provider ?? null;
   const selectedProviderByThreadId = composerDraft.provider;
-  const hasThreadStarted = Boolean(
-    activeThread &&
-    (activeThread.latestTurn !== null ||
-      activeThread.messages.length > 0 ||
-      activeThread.session !== null),
-  );
   const selectedServiceTierSetting = settings.codexServiceTier;
   const selectedServiceTier = resolveAppServiceTier(selectedServiceTierSetting);
-  const lockedProvider: ProviderKind | null = hasThreadStarted
-    ? (sessionProvider ?? selectedProviderByThreadId ?? null)
-    : null;
-  const selectedProvider: ProviderKind = lockedProvider ?? selectedProviderByThreadId ?? "codex";
+  const selectedProvider: ProviderKind = selectedProviderByThreadId ?? sessionProvider ?? "codex";
   const baseThreadModel = resolveModelSlugForProvider(
     selectedProvider,
     activeThread?.model ?? activeProject?.model ?? getDefaultModel(selectedProvider),
   );
-  const customModelsForSelectedProvider = settings.customCodexModels;
+  const customModelsForSelectedProvider = getCustomModelsForProvider(settings, selectedProvider);
   const selectedModel = useMemo(() => {
     const draftModel = composerDraft.model;
     if (!draftModel) {
@@ -816,6 +810,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
       ? selectedModelForPicker
       : (normalizeModelSlug(selectedModelForPicker, selectedProvider) ?? selectedModelForPicker);
   }, [modelOptionsByProvider, selectedModelForPicker, selectedProvider]);
+  const phase = derivePhase(activeThread?.session ?? null);
+  const lockedProvider: ProviderKind | null =
+    phase === "connecting" || phase === "running" ? selectedProvider : null;
   const searchableModelOptions = useMemo(
     () =>
       AVAILABLE_PROVIDER_OPTIONS.filter(
@@ -833,7 +830,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
       ),
     [lockedProvider, modelOptionsByProvider],
   );
-  const phase = derivePhase(activeThread?.session ?? null);
   const isSendBusy = sendPhase !== "idle";
   const isPreparingWorktree = sendPhase === "preparing-worktree";
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
@@ -1243,13 +1239,39 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const keybindings = serverConfigQuery.data?.keybindings ?? EMPTY_KEYBINDINGS;
   const availableEditors = serverConfigQuery.data?.availableEditors ?? EMPTY_AVAILABLE_EDITORS;
   const providerStatuses = serverConfigQuery.data?.providers ?? EMPTY_PROVIDER_STATUSES;
-  const activeProvider = activeThread?.session?.provider ?? "codex";
-  const activeProviderStatus = useMemo(
-    () => providerStatuses.find((status) => status.provider === activeProvider) ?? null,
-    [activeProvider, providerStatuses],
-  );
+  const activeProvider = activeThread?.session?.provider ?? selectedProvider;
+  const [geminiSetupOpen, setGeminiSetupOpen] = useState(false);
+  const [collapsedPlanPanelByThreadId, setCollapsedPlanPanelByThreadId] = useState<
+    Record<string, boolean>
+  >({});
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
+  const geminiWorkspaceCwd = activeThreadWorktreePath ?? activeProjectCwd;
+  const geminiStatusQuery = useQuery(geminiStatusQueryOptions(geminiWorkspaceCwd));
+  const activeProviderStatus = useMemo(
+    (): ServerProviderStatus | null => {
+      if (activeProvider === "gemini" && geminiStatusQuery.data) {
+        const status: ServerProviderStatus["status"] =
+          !geminiStatusQuery.data.available
+            ? "error"
+            : geminiStatusQuery.data.authStatus === "unauthenticated"
+              ? "warning"
+              : "ready";
+        return {
+          provider: "gemini",
+          status,
+          available: geminiStatusQuery.data.available,
+          authStatus: geminiStatusQuery.data.authStatus,
+          checkedAt: new Date().toISOString(),
+          ...(geminiStatusQuery.data.message ? { message: geminiStatusQuery.data.message } : {}),
+        };
+      }
+      return providerStatuses.find((status) => status.provider === activeProvider) ?? null;
+    },
+    [activeProvider, geminiStatusQuery.data, providerStatuses],
+  );
+  const activePlanPanelKey = activeThread?.id ?? threadId;
+  const activePlanPanelCollapsed = collapsedPlanPanelByThreadId[activePlanPanelKey] ?? false;
   const threadTerminalRuntimeEnv = useMemo(() => {
     if (!activeProjectCwd) return {};
     return projectScriptRuntimeEnv({
@@ -1387,39 +1409,67 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [activeThreadId, storeCloseTerminal, terminalState.terminalIds.length],
   );
-  const runProjectScript = useCallback(
-    async (
-      script: ProjectScript,
-      options?: {
-        cwd?: string;
-        env?: Record<string, string>;
-        worktreePath?: string | null;
-        preferNewTerminal?: boolean;
-        rememberAsLastInvoked?: boolean;
-        allowLocalDraftThread?: boolean;
-      },
-    ) => {
+  const focusTerminal = useCallback(
+    (terminalId: string) => {
+      if (!activeThreadId) return;
+      setTerminalOpen(true);
+      storeSetActiveTerminal(activeThreadId, terminalId);
+      setTerminalFocusRequestId((value) => value + 1);
+    },
+    [activeThreadId, setTerminalOpen, storeSetActiveTerminal],
+  );
+  const runTerminalCommand = useCallback(
+    async (input: {
+      command: string;
+      displayName: string;
+      cwd?: string;
+      env?: Record<string, string>;
+      worktreePath?: string | null;
+      preferNewTerminal?: boolean;
+      allowLocalDraftThread?: boolean;
+      preferredTerminalId?: string;
+      requirePreferredTerminal?: boolean;
+    }): Promise<string | null> => {
       const api = readNativeApi();
-      if (!api || !activeThreadId || !activeProject || !activeThread) return;
-      if (!isServerThread && !options?.allowLocalDraftThread) return;
-      if (options?.rememberAsLastInvoked !== false) {
-        setLastInvokedScriptByProjectId((current) => {
-          if (current[activeProject.id] === script.id) return current;
-          return { ...current, [activeProject.id]: script.id };
-        });
-      }
-      const targetCwd = options?.cwd ?? gitCwd ?? activeProject.cwd;
+      if (!api || !activeThreadId || !activeProject || !activeThread) return null;
+      if (!isServerThread && !input.allowLocalDraftThread) return null;
+
+      const requestedTerminalId = input.preferredTerminalId?.trim() || null;
+      const targetCwd = input.cwd ?? gitCwd ?? activeProject.cwd;
       const baseTerminalId =
         terminalState.activeTerminalId ||
         terminalState.terminalIds[0] ||
         DEFAULT_THREAD_TERMINAL_ID;
-      const isBaseTerminalBusy = terminalState.runningTerminalIds.includes(baseTerminalId);
-      const wantsNewTerminal = Boolean(options?.preferNewTerminal) || isBaseTerminalBusy;
-      const shouldCreateNewTerminal =
-        wantsNewTerminal && terminalState.terminalIds.length < MAX_THREAD_TERMINAL_COUNT;
-      const targetTerminalId = shouldCreateNewTerminal
-        ? `terminal-${crypto.randomUUID()}`
-        : baseTerminalId;
+      const baseTerminalBusy = terminalState.runningTerminalIds.includes(baseTerminalId);
+      const preferredTerminalExists = requestedTerminalId
+        ? terminalState.terminalIds.includes(requestedTerminalId)
+        : false;
+      const preferredTerminalBusy = requestedTerminalId
+        ? terminalState.runningTerminalIds.includes(requestedTerminalId)
+        : false;
+
+      if (
+        requestedTerminalId &&
+        input.requirePreferredTerminal &&
+        !preferredTerminalExists &&
+        terminalState.terminalIds.length >= MAX_THREAD_TERMINAL_COUNT
+      ) {
+        setThreadError(activeThreadId, `Close a terminal to run ${input.displayName}.`);
+        return null;
+      }
+
+      if (requestedTerminalId && preferredTerminalExists && preferredTerminalBusy) {
+        focusTerminal(requestedTerminalId);
+        return requestedTerminalId;
+      }
+
+      const shouldCreateNewTerminal = requestedTerminalId
+        ? !preferredTerminalExists
+        : (Boolean(input.preferNewTerminal) || baseTerminalBusy) &&
+          terminalState.terminalIds.length < MAX_THREAD_TERMINAL_COUNT;
+      const targetTerminalId =
+        requestedTerminalId ??
+        (shouldCreateNewTerminal ? `terminal-${crypto.randomUUID()}` : baseTerminalId);
 
       setTerminalOpen(true);
       if (shouldCreateNewTerminal) {
@@ -1433,8 +1483,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
         project: {
           cwd: activeProject.cwd,
         },
-        worktreePath: options?.worktreePath ?? activeThread.worktreePath ?? null,
-        ...(options?.env ? { extraEnv: options.env } : {}),
+        worktreePath: input.worktreePath ?? activeThread.worktreePath ?? null,
+        ...(input.env ? { extraEnv: input.env } : {}),
       });
       const openTerminalInput: Parameters<typeof api.terminal.open>[0] = shouldCreateNewTerminal
         ? {
@@ -1457,19 +1507,22 @@ export default function ChatView({ threadId }: ChatViewProps) {
         await api.terminal.write({
           threadId: activeThreadId,
           terminalId: targetTerminalId,
-          data: `${script.command}\r`,
+          data: `${input.command}\r`,
         });
+        return targetTerminalId;
       } catch (error) {
         setThreadError(
           activeThreadId,
-          error instanceof Error ? error.message : `Failed to run script "${script.name}".`,
+          error instanceof Error ? error.message : `Failed to run ${input.displayName}.`,
         );
+        return null;
       }
     },
     [
       activeProject,
       activeThread,
       activeThreadId,
+      focusTerminal,
       gitCwd,
       isServerThread,
       setTerminalOpen,
@@ -1481,6 +1534,107 @@ export default function ChatView({ threadId }: ChatViewProps) {
       terminalState.terminalIds,
     ],
   );
+  const runProjectScript = useCallback(
+    async (
+      script: ProjectScript,
+      options?: {
+        cwd?: string;
+        env?: Record<string, string>;
+        worktreePath?: string | null;
+        preferNewTerminal?: boolean;
+        rememberAsLastInvoked?: boolean;
+        allowLocalDraftThread?: boolean;
+      },
+    ) => {
+      if (options?.rememberAsLastInvoked !== false) {
+        setLastInvokedScriptByProjectId((current) => {
+          if (!activeProject || current[activeProject.id] === script.id) return current;
+          return { ...current, [activeProject.id]: script.id };
+        });
+      }
+      await runTerminalCommand({
+        command: script.command,
+        displayName: `script "${script.name}"`,
+        ...(options?.cwd ? { cwd: options.cwd } : {}),
+        ...(options?.env ? { env: options.env } : {}),
+        ...(options?.worktreePath !== undefined ? { worktreePath: options.worktreePath } : {}),
+        ...(options?.preferNewTerminal !== undefined
+          ? { preferNewTerminal: options.preferNewTerminal }
+          : {}),
+        ...(options?.allowLocalDraftThread !== undefined
+          ? { allowLocalDraftThread: options.allowLocalDraftThread }
+          : {}),
+      });
+    },
+    [
+      activeProject,
+      runTerminalCommand,
+    ],
+  );
+  useEffect(() => {
+    if (
+      selectedProvider === "gemini" &&
+      geminiStatusQuery.data &&
+      (!geminiStatusQuery.data.available || geminiStatusQuery.data.authStatus === "unauthenticated")
+    ) {
+      setGeminiSetupOpen(true);
+    }
+  }, [geminiStatusQuery.data, selectedProvider]);
+  const openGeminiDocs = useCallback(() => {
+    const api = readNativeApi();
+    if (!api) return;
+    void api.shell.openExternal(
+      "https://github.com/google-gemini/gemini-cli/blob/main/docs/get-started/authentication.md",
+    );
+  }, []);
+  const openGeminiSetup = useCallback(() => {
+    const status = geminiStatusQuery.data;
+    if (!status || !geminiWorkspaceCwd) {
+      setGeminiSetupOpen(true);
+      return;
+    }
+    setGeminiSetupOpen(true);
+    void runTerminalCommand({
+      command: status.setupCommand,
+      displayName: "Gemini setup",
+      cwd: geminiWorkspaceCwd,
+      allowLocalDraftThread: true,
+    }).catch((error) => {
+      toastManager.add({
+        type: "error",
+        title: "Unable to start Gemini setup",
+        description:
+          error instanceof Error ? error.message : "The Gemini setup command could not be started.",
+      });
+    });
+  }, [geminiStatusQuery.data, geminiWorkspaceCwd, runTerminalCommand]);
+  const ensureGeminiCanRun = useCallback((): boolean => {
+    if (selectedProvider !== "gemini") {
+      return true;
+    }
+    if (runtimeMode !== "full-access") {
+      const message = "Gemini currently requires Full access in T3 Sparks. Switch runtime mode and retry.";
+      setThreadError(activeThreadId, message);
+      toastManager.add({
+        type: "warning",
+        title: "Gemini needs Full access",
+        description: message,
+      });
+      return false;
+    }
+    if (!geminiStatusQuery.data?.available || geminiStatusQuery.data.authStatus === "unauthenticated") {
+      setGeminiSetupOpen(true);
+      setThreadError(activeThreadId, "Gemini is not set up yet. Open Gemini setup and sign in with Google first.");
+      return false;
+    }
+    return true;
+  }, [activeThreadId, geminiStatusQuery.data, runtimeMode, selectedProvider, setThreadError]);
+  const toggleActivePlanPanelCollapsed = useCallback(() => {
+    setCollapsedPlanPanelByThreadId((existing) => ({
+      ...existing,
+      [activePlanPanelKey]: !existing[activePlanPanelKey],
+    }));
+  }, [activePlanPanelKey]);
   const persistProjectScripts = useCallback(
     async (input: {
       projectId: ProjectId;
@@ -2337,6 +2491,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     e?.preventDefault();
     const api = readNativeApi();
     if (!api || !activeThread || isSendBusy || isConnecting || sendInFlightRef.current) return;
+    if (!ensureGeminiCanRun()) return;
     if (activePendingProgress) {
       onAdvanceActivePendingUserInput();
       return;
@@ -2481,8 +2636,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         }
       }
       const title = truncateTitle(titleSeed);
-      let threadCreateModel: ModelSlug =
-        selectedModel || (activeProject.model as ModelSlug) || DEFAULT_MODEL_BY_PROVIDER.codex;
+      const threadCreateModel: ModelSlug = selectedModel;
 
       if (isLocalDraftThread) {
         await api.orchestration.dispatchCommand({
@@ -2785,6 +2939,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
       ) {
         return;
       }
+      if (!ensureGeminiCanRun()) {
+        return;
+      }
 
       const trimmed = text.trim();
       if (!trimmed) {
@@ -2860,6 +3017,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [
       activeThread,
+      ensureGeminiCanRun,
       forceStickToBottom,
       isConnecting,
       isSendBusy,
@@ -2889,17 +3047,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
     ) {
       return;
     }
+    if (!ensureGeminiCanRun()) {
+      return;
+    }
 
     const createdAt = new Date().toISOString();
     const nextThreadId = newThreadId();
     const planMarkdown = activeProposedPlan.planMarkdown;
     const implementationPrompt = buildPlanImplementationPrompt(planMarkdown);
     const nextThreadTitle = truncateTitle(buildPlanImplementationThreadTitle(planMarkdown));
-    const nextThreadModel: ModelSlug =
-      selectedModel ||
-      (activeThread.model as ModelSlug) ||
-      (activeProject.model as ModelSlug) ||
-      DEFAULT_MODEL_BY_PROVIDER.codex;
+    const nextThreadModel: ModelSlug = selectedModel;
 
     sendInFlightRef.current = true;
     setSendPhase("sending-turn");
@@ -2978,6 +3135,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     activeProject,
     activeProposedPlan,
     activeThread,
+    ensureGeminiCanRun,
     isConnecting,
     isSendBusy,
     isServerThread,
@@ -3000,8 +3158,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setComposerDraftProvider(activeThread.id, provider);
       setComposerDraftModel(
         activeThread.id,
-        resolveAppModelSelection(provider, settings.customCodexModels, model),
+        resolveAppModelSelection(provider, getCustomModelsForProvider(settings, provider), model),
       );
+      if (
+        provider === "gemini" &&
+        selectedProvider !== "gemini" &&
+        geminiStatusQuery.data &&
+        (!geminiStatusQuery.data.available || geminiStatusQuery.data.authStatus === "unauthenticated")
+      ) {
+        setGeminiSetupOpen(true);
+      }
       scheduleComposerFocus();
     },
     [
@@ -3010,7 +3176,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
       scheduleComposerFocus,
       setComposerDraftModel,
       setComposerDraftProvider,
-      settings.customCodexModels,
+      geminiStatusQuery.data,
+      settings,
+      selectedProvider,
     ],
   );
   const onEffortSelect = useCallback(
@@ -3345,7 +3513,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
       {/* Error banner */}
       <ProviderHealthBanner status={activeProviderStatus} />
       <ThreadErrorBanner error={activeThread.error} />
-      <PlanModePanel activePlan={activePlan} />
 
       {/* Messages */}
       <div
@@ -3404,6 +3571,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
             onDragLeave={onComposerDragLeave}
             onDrop={onComposerDrop}
           >
+            {activePlan ? (
+              <div className="border-border/65 border-b bg-muted/18">
+                <ComposerPlanPanel
+                  activePlan={activePlan}
+                  collapsed={activePlanPanelCollapsed}
+                  onToggleCollapsed={toggleActivePlanPanelCollapsed}
+                />
+              </div>
+            ) : null}
             {activePendingApproval ? (
               <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
                 <ComposerPendingApprovalPanel
@@ -3578,6 +3754,22 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     </>
                   ) : null}
 
+                  {selectedProvider === "gemini" ? (
+                    <>
+                      <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
+                      <Button
+                        variant="ghost"
+                        className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
+                        size="sm"
+                        type="button"
+                        onClick={() => setGeminiSetupOpen(true)}
+                      >
+                        <Gemini className="size-4 shrink-0" />
+                        <span className="sr-only sm:not-sr-only">Gemini setup</span>
+                      </Button>
+                    </>
+                  ) : null}
+
                   {/* Divider */}
                   <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
 
@@ -3625,6 +3817,39 @@ export default function ChatView({ threadId }: ChatViewProps) {
                       {runtimeMode === "full-access" ? "Full access" : "Supervised"}
                     </span>
                   </Button>
+
+                  {activeProject ? (
+                    <>
+                      <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
+                      <ConvexControl
+                        threadId={activeThread.id}
+                        cwd={gitCwd ?? activeProject.cwd}
+                        terminalIds={terminalState.terminalIds}
+                        runningTerminalIds={terminalState.runningTerminalIds}
+                        onRunCommand={({
+                          command,
+                          cwd,
+                          preferredTerminalId,
+                          preferNewTerminal,
+                          allowLocalDraftThread,
+                        }) =>
+                          runTerminalCommand({
+                            command,
+                            displayName: "Convex command",
+                            ...(cwd ? { cwd } : {}),
+                            ...(preferNewTerminal !== undefined ? { preferNewTerminal } : {}),
+                            ...(preferredTerminalId ? { preferredTerminalId } : {}),
+                            ...(allowLocalDraftThread !== undefined
+                              ? { allowLocalDraftThread }
+                              : {}),
+                            requirePreferredTerminal: true,
+                          })
+                        }
+                        onFocusTerminal={focusTerminal}
+                        onCloseTerminal={closeTerminal}
+                      />
+                    </>
+                  ) : null}
                 </div>
 
                 {/* Right side: send / stop button */}
@@ -3827,6 +4052,19 @@ export default function ChatView({ threadId }: ChatViewProps) {
           />
         );
       })()}
+
+      <GeminiSetupDialog
+        open={geminiSetupOpen}
+        status={geminiStatusQuery.data}
+        isRefreshing={geminiStatusQuery.isFetching}
+        onOpenChange={setGeminiSetupOpen}
+        onRunSetup={openGeminiSetup}
+        onRefresh={() => {
+          void geminiStatusQuery.refetch();
+          void queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() });
+        }}
+        onOpenDocs={openGeminiDocs}
+      />
 
       {expandedImage && expandedImageItem && (
         <div
@@ -4119,51 +4357,82 @@ const ComposerPendingApprovalActions = memo(function ComposerPendingApprovalActi
   );
 });
 
-interface PlanModePanelProps {
+interface ComposerPlanPanelProps {
   activePlan: ReturnType<typeof deriveActivePlanState>;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }
 
-const PlanModePanel = memo(function PlanModePanel({ activePlan }: PlanModePanelProps) {
+const ComposerPlanPanel = memo(function ComposerPlanPanel({
+  activePlan,
+  collapsed,
+  onToggleCollapsed,
+}: ComposerPlanPanelProps) {
   if (!activePlan) return null;
+  const activeStep =
+    activePlan.steps.find((step) => step.status === "inProgress") ??
+    activePlan.steps.find((step) => step.status === "pending") ??
+    activePlan.steps[0] ??
+    null;
+  const collapsedSummary =
+    activeStep?.step || activePlan.explanation?.trim() || "Working plan";
 
   return (
-    <div className="pt-3 mx-auto max-w-3xl">
-      <div className="rounded-xl border border-border/70 bg-muted/30 p-4">
-        <div className="flex items-center gap-2">
-          <Badge variant="secondary">Plan</Badge>
-          <span className="text-xs text-muted-foreground">
-            Updated {formatTimestamp(activePlan.createdAt)}
-          </span>
-        </div>
-        {activePlan.explanation ? (
-          <p className="mt-2 text-sm text-muted-foreground">{activePlan.explanation}</p>
-        ) : null}
-        <div className="mt-3 space-y-2">
-          {activePlan.steps.map((step) => (
-            <div
-              key={`${step.status}:${step.step}`}
-              className="flex items-start gap-3 rounded-lg border border-border/60 bg-background/80 px-3 py-2"
-            >
-              <Badge
-                variant={
-                  step.status === "completed"
-                    ? "default"
-                    : step.status === "inProgress"
-                      ? "secondary"
-                      : "outline"
-                }
-              >
-                {step.status === "inProgress"
-                  ? "In progress"
-                  : step.status === "completed"
-                    ? "Done"
-                    : "Pending"}
-              </Badge>
-              <div className="min-w-0 flex-1 text-sm">{step.step}</div>
+    <div className="px-3 py-2 sm:px-4">
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 rounded-[14px] border border-border/60 bg-background/65 px-3 py-2 text-left transition-colors hover:bg-background/80"
+        onClick={onToggleCollapsed}
+        aria-expanded={!collapsed}
+      >
+        <Badge variant="secondary">Plan</Badge>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+          {collapsedSummary}
+        </span>
+        <span className="hidden text-xs text-muted-foreground sm:inline">
+          {activeStep ? `Now: ${activeStep.status === "completed" ? "Done" : activeStep.status === "inProgress" ? "In progress" : "Pending"}` : `${activePlan.steps.length} step${activePlan.steps.length === 1 ? "" : "s"}`}{" "}
+          · Updated {formatTimestamp(activePlan.createdAt)}
+        </span>
+        <ChevronDownIcon
+          aria-hidden="true"
+          className={cn("size-4 shrink-0 text-muted-foreground transition-transform", collapsed ? "" : "rotate-180")}
+        />
+      </button>
+      {!collapsed ? (
+        <div className="mt-2 space-y-2 rounded-[16px] border border-border/55 bg-background/50 p-3">
+          {activePlan.explanation ? (
+            <p className="text-sm text-muted-foreground">{activePlan.explanation}</p>
+          ) : null}
+          {activePlan.steps.length > 0 ? (
+            <div className="space-y-1.5">
+              {activePlan.steps.map((step) => (
+                <div
+                  key={`${step.status}:${step.step}`}
+                  className="flex items-start gap-2 rounded-xl border border-border/45 bg-background/75 px-2.5 py-2"
+                >
+                  <Badge
+                    variant={
+                      step.status === "completed"
+                        ? "default"
+                        : step.status === "inProgress"
+                          ? "secondary"
+                          : "outline"
+                    }
+                    className="shrink-0"
+                  >
+                    {step.status === "inProgress"
+                      ? "In progress"
+                      : step.status === "completed"
+                        ? "Done"
+                        : "Pending"}
+                  </Badge>
+                  <div className="min-w-0 flex-1 text-sm">{step.step}</div>
+                </div>
+              ))}
             </div>
-          ))}
+          ) : null}
         </div>
-      </div>
+      ) : null}
     </div>
   );
 });
@@ -5189,19 +5458,37 @@ const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter(isAvailableProviderOp
 const UNAVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter((option) => !option.available);
 const COMING_SOON_PROVIDER_OPTIONS = [
   { id: "opencode", label: "OpenCode", icon: OpenCodeIcon },
-  { id: "gemini", label: "Gemini", icon: Gemini },
 ] as const;
 
 function getCustomModelOptionsByProvider(settings: {
   customCodexModels: readonly string[];
+  customGeminiModels: readonly string[];
 }): Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>> {
   return {
     codex: getAppModelOptions("codex", settings.customCodexModels),
+    gemini: getAppModelOptions("gemini", settings.customGeminiModels),
   };
+}
+
+function getCustomModelsForProvider(
+  settings: {
+    customCodexModels: readonly string[];
+    customGeminiModels: readonly string[];
+  },
+  provider: ProviderKind,
+): readonly string[] {
+  switch (provider) {
+    case "gemini":
+      return settings.customGeminiModels;
+    case "codex":
+    default:
+      return settings.customCodexModels;
+  }
 }
 
 const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   codex: OpenAI,
+  gemini: Gemini,
   claudeCode: ClaudeAI,
   cursor: CursorIcon,
 };

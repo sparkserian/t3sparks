@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getAppSettingsSnapshot,
   getAppModelOptions,
   getSlashModelOptions,
   normalizeCustomModelSlugs,
@@ -21,6 +22,64 @@ describe("normalizeCustomModelSlugs", () => {
         null,
       ]),
     ).toEqual(["custom/internal-model"]);
+  });
+
+  it("normalizes Gemini aliases against the Gemini catalog", () => {
+    expect(
+      normalizeCustomModelSlugs(
+        [" 3.1-pro ", " pro ", " 2.5-pro ", " gemini-experimental "],
+        "gemini",
+      ),
+    ).toEqual(["gemini-experimental"]);
+  });
+});
+
+describe("getAppSettingsSnapshot", () => {
+  it("provides onboarding defaults for new installs", () => {
+    expect(getAppSettingsSnapshot()).toMatchObject({
+      projectHomePath: "",
+      hasSeenOnboarding: false,
+    });
+  });
+
+  it("hydrates persisted onboarding state from local storage", () => {
+    const store = new Map<string, string>();
+    const previousWindow = (globalThis as typeof globalThis & { window?: unknown }).window;
+
+    try {
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: {
+          localStorage: {
+            getItem: (key: string) => store.get(key) ?? null,
+            setItem: (key: string, value: string) => {
+              store.set(key, value);
+            },
+          },
+        },
+      });
+      store.set(
+        "t3code:app-settings:v1",
+        JSON.stringify({
+          projectHomePath: "/Users/william/Projects",
+          hasSeenOnboarding: true,
+        }),
+      );
+
+      expect(getAppSettingsSnapshot()).toMatchObject({
+        projectHomePath: "/Users/william/Projects",
+        hasSeenOnboarding: true,
+      });
+    } finally {
+      if (previousWindow === undefined) {
+        Reflect.deleteProperty(globalThis, "window");
+      } else {
+        Object.defineProperty(globalThis, "window", {
+          configurable: true,
+          value: previousWindow,
+        });
+      }
+    }
   });
 });
 
@@ -47,6 +106,19 @@ describe("getAppModelOptions", () => {
       isCustom: true,
     });
   });
+
+  it("returns Gemini built-ins before custom Gemini models", () => {
+    const options = getAppModelOptions("gemini", ["gemini-experimental"]);
+
+    expect(options.map((option) => option.slug)).toEqual([
+      "auto",
+      "gemini-3.1-pro-preview",
+      "gemini-2.5-pro",
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite",
+      "gemini-experimental",
+    ]);
+  });
 });
 
 describe("resolveAppModelSelection", () => {
@@ -58,6 +130,10 @@ describe("resolveAppModelSelection", () => {
 
   it("falls back to the provider default when no model is selected", () => {
     expect(resolveAppModelSelection("codex", [], "")).toBe("gpt-5.4");
+  });
+
+  it("falls back to Gemini's provider default when no Gemini model is selected", () => {
+    expect(resolveAppModelSelection("gemini", [], "")).toBe("auto");
   });
 });
 

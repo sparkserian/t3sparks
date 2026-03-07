@@ -72,6 +72,9 @@ import {
 } from "./attachmentStore.ts";
 import { parseBase64DataUrl } from "./imageMime.ts";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService.ts";
+import { Convex } from "./convex/Services/Convex.ts";
+import { Gemini } from "./gemini/Services/Gemini.ts";
+import { ensureProjectDirectory } from "./projectDirectories.ts";
 
 /**
  * ServerShape - Service API for server lifecycle control.
@@ -206,6 +209,8 @@ export type ServerRuntimeServices =
   | ServerCoreRuntimeServices
   | GitManager
   | GitCore
+  | Convex
+  | Gemini
   | TerminalManager
   | Keybindings
   | Open
@@ -245,6 +250,8 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
   const gitManager = yield* GitManager;
   const terminalManager = yield* TerminalManager;
   const keybindingsManager = yield* Keybindings;
+  const convex = yield* Convex;
+  const gemini = yield* Gemini;
   const providerHealth = yield* ProviderHealth;
   const git = yield* GitCore;
   const fileSystem = yield* FileSystem.FileSystem;
@@ -750,9 +757,33 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         return { relativePath: target.relativePath };
       }
 
+      case WS_METHODS.projectsCreateDirectory: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => ensureProjectDirectory(body),
+          catch: (cause) =>
+            new RouteRequestError({
+              message:
+                cause instanceof Error
+                  ? cause.message
+                  : `Failed to create project folder: ${String(cause)}`,
+            }),
+        });
+      }
+
       case WS_METHODS.shellOpenInEditor: {
         const body = stripRequestTag(request.body);
         return yield* openInEditor(body);
+      }
+
+      case WS_METHODS.convexStatus: {
+        const body = stripRequestTag(request.body);
+        return yield* convex.getStatus(body);
+      }
+
+      case WS_METHODS.geminiStatus: {
+        const body = stripRequestTag(request.body);
+        return yield* gemini.getStatus(body);
       }
 
       case WS_METHODS.gitStatus: {

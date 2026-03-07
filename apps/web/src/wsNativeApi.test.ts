@@ -81,6 +81,7 @@ beforeEach(() => {
   subscribeMock.mockClear();
   channelListeners.clear();
   Reflect.deleteProperty(getWindowForTest(), "desktopBridge");
+  Reflect.deleteProperty(getWindowForTest(), "prompt");
 });
 
 afterEach(() => {
@@ -347,6 +348,57 @@ describe("wsNativeApi", () => {
       relativePath: "plan.md",
       contents: "# Plan\n",
     });
+  });
+
+  it("forwards project directory creation to the websocket project method", async () => {
+    requestMock.mockResolvedValue({ path: "/tmp/project-home", created: true });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.projects.createDirectory({
+      parentPath: "/tmp",
+      directoryName: "project-home",
+    });
+
+    expect(requestMock).toHaveBeenCalledWith(WS_METHODS.projectsCreateDirectory, {
+      parentPath: "/tmp",
+      directoryName: "project-home",
+    });
+  });
+
+  it("forwards Gemini status requests to the websocket Gemini method", async () => {
+    requestMock.mockResolvedValue({
+      cwd: "/tmp/project",
+      available: true,
+      installed: true,
+      executableCommand: "gemini",
+      setupCommand: "gemini",
+      headlessCommand: 'gemini -p "<prompt>" -o stream-json --approval-mode yolo',
+      settingsPath: "/Users/test/.gemini/settings.json",
+      authType: "oauth-personal",
+      authStatus: "unknown",
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.gemini.status({ cwd: "/tmp/project" });
+
+    expect(requestMock).toHaveBeenCalledWith(WS_METHODS.geminiStatus, {
+      cwd: "/tmp/project",
+    });
+  });
+
+  it("falls back to a manual path prompt when desktop bridge is unavailable", async () => {
+    Object.defineProperty(getWindowForTest(), "prompt", {
+      configurable: true,
+      writable: true,
+      value: vi.fn().mockReturnValue("/tmp/manual-project-home"),
+    });
+
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await expect(api.dialogs.pickFolder()).resolves.toBe("/tmp/manual-project-home");
   });
 
   it("forwards full-thread diff requests to the orchestration websocket method", async () => {

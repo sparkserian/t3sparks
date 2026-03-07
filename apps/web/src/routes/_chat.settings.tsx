@@ -15,6 +15,7 @@ import { isElectron } from "../env";
 import { useTheme } from "../hooks/useTheme";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { ensureNativeApi } from "../nativeApi";
+import { requestOpenOnboarding } from "../onboarding";
 import { preferredTerminalEditor } from "../terminal-links";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -54,6 +55,13 @@ const MODEL_PROVIDER_SETTINGS: Array<{
     placeholder: "your-codex-model-slug",
     example: "gpt-6.7-codex-ultra-preview",
   },
+  {
+    provider: "gemini",
+    title: "Gemini",
+    description: "Save additional Gemini model slugs for the picker and `/model` command.",
+    placeholder: "your-gemini-model-slug",
+    example: "gemini-3-pro-preview",
+  },
 ] as const;
 
 function getCustomModelsForProvider(
@@ -62,6 +70,9 @@ function getCustomModelsForProvider(
 ) {
   switch (provider) {
     case "codex":
+      return settings.customCodexModels;
+    case "gemini":
+      return settings.customGeminiModels;
     default:
       return settings.customCodexModels;
   }
@@ -73,6 +84,9 @@ function getDefaultCustomModelsForProvider(
 ) {
   switch (provider) {
     case "codex":
+      return defaults.customCodexModels;
+    case "gemini":
+      return defaults.customGeminiModels;
     default:
       return defaults.customCodexModels;
   }
@@ -81,6 +95,9 @@ function getDefaultCustomModelsForProvider(
 function patchCustomModels(provider: ProviderKind, models: string[]) {
   switch (provider) {
     case "codex":
+      return { customCodexModels: models };
+    case "gemini":
+      return { customGeminiModels: models };
     default:
       return { customCodexModels: models };
   }
@@ -96,6 +113,7 @@ function SettingsRouteView() {
     Record<ProviderKind, string>
   >({
     codex: "",
+    gemini: "",
   });
   const [customModelErrorByProvider, setCustomModelErrorByProvider] = useState<
     Partial<Record<ProviderKind, string | null>>
@@ -200,10 +218,31 @@ function SettingsRouteView() {
             </header>
 
             <section className="rounded-2xl border border-border bg-card p-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-sm font-medium text-foreground">Beginner Setup Guide</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Replay the first-run guide to pick a project home or revisit the beginner GitHub
+                    walkthrough.
+                  </p>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Current project home:{" "}
+                    <span className="font-medium text-foreground">
+                      {settings.projectHomePath || "Not configured yet"}
+                    </span>
+                  </p>
+                </div>
+                <Button variant="outline" onClick={requestOpenOnboarding}>
+                  Replay setup guide
+                </Button>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-border bg-card p-5">
               <div className="mb-4">
                 <h2 className="text-sm font-medium text-foreground">Appearance</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Choose how T3 Code handles light and dark mode.
+                  Choose how T3 Sparks handles light and dark mode.
                 </p>
               </div>
 

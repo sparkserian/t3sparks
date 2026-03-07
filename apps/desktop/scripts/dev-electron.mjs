@@ -76,12 +76,14 @@ function startApp() {
     }
   });
 
-  app.once("exit", () => {
+  app.once("exit", (code) => {
     if (currentApp === app) {
       currentApp = null;
     }
 
-    if (!shuttingDown && !expectedExits.has(app)) {
+    // A normal app quit should stay quit. Only restart on abnormal exits;
+    // file-watcher restarts already flow through stopApp + scheduleRestart.
+    if (!shuttingDown && !expectedExits.has(app) && code !== 0) {
       scheduleRestart();
     }
   });

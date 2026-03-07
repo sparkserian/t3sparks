@@ -19,6 +19,7 @@ import { OrchestrationProjectionSnapshotQueryLive } from "./orchestration/Layers
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
 import { ProviderUnsupportedError } from "./provider/Errors";
 import { makeCodexAdapterLive } from "./provider/Layers/CodexAdapter";
+import { GeminiAdapterLive } from "./provider/Layers/GeminiAdapter";
 import { ProviderAdapterRegistryLive } from "./provider/Layers/ProviderAdapterRegistry";
 import { makeProviderServiceLive } from "./provider/Layers/ProviderService";
 import { ProviderSessionDirectoryLive } from "./provider/Layers/ProviderSessionDirectory";
@@ -35,6 +36,8 @@ import { GitServiceLive } from "./git/Layers/GitService";
 import { BunPtyAdapterLive } from "./terminal/Layers/BunPTY";
 import { NodePtyAdapterLive } from "./terminal/Layers/NodePTY";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
+import { ConvexLive } from "./convex/Layers/Convex";
+import { GeminiLive } from "./gemini/Layers/Gemini";
 
 export function makeServerProviderLayer(): Layer.Layer<
   ProviderService,
@@ -59,6 +62,7 @@ export function makeServerProviderLayer(): Layer.Layer<
     );
     const adapterRegistryLayer = ProviderAdapterRegistryLive.pipe(
       Layer.provide(codexAdapterLayer),
+      Layer.provide(GeminiAdapterLive),
       Layer.provideMerge(providerSessionDirectoryLayer),
     );
     return makeProviderServiceLive(
@@ -123,6 +127,8 @@ export function makeServerRuntimeServicesLayer() {
     orchestrationReactorLayer,
     gitCoreLayer,
     gitManagerLayer,
+    ConvexLive,
+    GeminiLive,
     terminalLayer,
     KeybindingsLive,
   ).pipe(Layer.provideMerge(NodeServices.layer));

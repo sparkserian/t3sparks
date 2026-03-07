@@ -53,8 +53,13 @@ const CodexProviderStartOptions = Schema.Struct({
   homePath: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 
+const GeminiProviderStartOptions = Schema.Struct({
+  binaryPath: Schema.optional(TrimmedNonEmptyStringSchema),
+});
+
 const ProviderStartOptions = Schema.Struct({
   codex: Schema.optional(CodexProviderStartOptions),
+  gemini: Schema.optional(GeminiProviderStartOptions),
 });
 
 export const ProviderSessionStartInput = Schema.Struct({
