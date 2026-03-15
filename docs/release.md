@@ -1,6 +1,6 @@
 # Release Checklist
 
-This repo now supports the same local release flow you described:
+This repo now supports the same command flow you described:
 
 - `npm version patch`
 - `git push origin main --follow-tags`
@@ -8,7 +8,14 @@ This repo now supports the same local release flow you described:
 - `npm run publish:win`
 - optional: `npm run publish:linux`
 
-Each `publish:*` script builds locally with `electron-builder` and uploads directly to the same GitHub Release for the current version.
+Each `publish:*` script uploads to the same GitHub Release for the current version.
+
+How the publish step runs:
+
+- native target on the matching OS: builds locally with `electron-builder` and uploads directly
+- non-native target from the wrong OS: pushes the tag and uses GitHub Actions on the correct runner
+
+This is necessary because the packaged app includes native modules such as `node-pty`, and `node-gyp` cannot cross-compile them from macOS to Windows or Linux.
 
 ## GitHub setup
 
@@ -57,19 +64,16 @@ What each one does:
   - pushes the matching version tag like `v0.0.9`
 
 - `npm run publish:mac-arm64`
-  - builds the desktop app locally
-  - packages macOS `dmg` and `zip`
-  - uploads them and the updater metadata to GitHub Releases
+  - on Apple Silicon Mac: builds locally, packages macOS `dmg` and `zip`, and uploads them
+  - on other hosts: falls back to GitHub Actions on macOS
 
 - `npm run publish:win`
-  - builds the desktop app locally
-  - packages Windows `nsis`
-  - uploads it and the updater metadata to the same GitHub Release
+  - on Windows: builds locally, packages Windows `nsis`, and uploads it
+  - on macOS/Linux: falls back to GitHub Actions on Windows
 
 - `npm run publish:linux`
-  - builds the desktop app locally
-  - packages Linux `AppImage`
-  - uploads it to the same GitHub Release
+  - on Linux: builds locally, packages Linux `AppImage`, and uploads it
+  - on macOS/Windows: falls back to GitHub Actions on Linux
 
 ## Notes
 
@@ -78,8 +82,9 @@ What each one does:
 - macOS auto-update needs both the `dmg` and the `zip`.
 - Windows auto-update uses the `nsis` target.
 - `publish:*` requires `GH_TOKEN` with release upload access.
-- Publish macOS from a Mac for the most reliable result.
-- Publish Windows from Windows or CI for the most reliable result.
+- Publish macOS from a Mac for the fastest path.
+- Publish Windows from Windows or let the script fall back to CI.
+- Publish Linux from Linux or let the script fall back to CI.
 
 ## Optional signing
 

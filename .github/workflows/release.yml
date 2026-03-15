@@ -15,6 +15,7 @@ on:
         options:
           - mac-arm64
           - win
+          - linux
 
 permissions:
   contents: write
@@ -52,6 +53,9 @@ jobs:
               ;;
             win)
               matrix='[{"label":"Windows x64","runner":"windows-2022","platform":"win","target":"nsis","arch":"x64"}]'
+              ;;
+            linux)
+              matrix='[{"label":"Linux x64","runner":"ubuntu-24.04","platform":"linux","target":"AppImage","arch":"x64"}]'
               ;;
             *)
               echo "Invalid release platform: $platform" >&2
@@ -184,14 +188,18 @@ jobs:
             "release/*.dmg" \
             "release/*.zip" \
             "release/*.exe" \
+            "release/*.AppImage" \
+            "release/*.deb" \
             "release/*.blockmap" \
-            "release/latest*.yml"; do
+            "release/latest*.yml" \
+            "release/latest-linux*.yml"; do
             for file in $pattern; do
               cp "$file" release-publish/
             done
           done
 
-      - name: Publish release
+      - name: Publish release (macOS)
+        if: ${{ matrix.platform == 'mac' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.preflight.outputs.tag }}
@@ -203,7 +211,38 @@ jobs:
           files: |
             release-publish/*.dmg
             release-publish/*.zip
+            release-publish/*.blockmap
+            release-publish/latest-mac*.yml
+          fail_on_unmatched_files: true
+
+      - name: Publish release (Windows)
+        if: ${{ matrix.platform == 'win' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.preflight.outputs.tag }}
+          target_commitish: ${{ needs.preflight.outputs.ref }}
+          name: T3 Sparks v${{ needs.preflight.outputs.version }}
+          generate_release_notes: true
+          make_latest: true
+          overwrite_files: true
+          files: |
             release-publish/*.exe
             release-publish/*.blockmap
             release-publish/latest*.yml
+          fail_on_unmatched_files: true
+
+      - name: Publish release (Linux)
+        if: ${{ matrix.platform == 'linux' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.preflight.outputs.tag }}
+          target_commitish: ${{ needs.preflight.outputs.ref }}
+          name: T3 Sparks v${{ needs.preflight.outputs.version }}
+          generate_release_notes: true
+          make_latest: true
+          overwrite_files: true
+          files: |
+            release-publish/*.AppImage
+            release-publish/*.blockmap
+            release-publish/latest-linux*.yml
           fail_on_unmatched_files: true
