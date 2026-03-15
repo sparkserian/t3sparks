@@ -63,12 +63,31 @@ describe("getAppSettingsSnapshot", () => {
         JSON.stringify({
           projectHomePath: "/Users/william/Projects",
           hasSeenOnboarding: true,
+          customInstructions: [
+            {
+              id: "review",
+              title: " Review carefully ",
+              body: " Prefer smaller diffs and call out risky assumptions. ",
+            },
+            {
+              id: "review",
+              title: "Duplicate should be ignored",
+              body: "Duplicate body",
+            },
+          ],
         }),
       );
 
       expect(getAppSettingsSnapshot()).toMatchObject({
         projectHomePath: "/Users/william/Projects",
         hasSeenOnboarding: true,
+        customInstructions: [
+          {
+            id: "review",
+            title: "Review carefully",
+            body: "Prefer smaller diffs and call out risky assumptions.",
+          },
+        ],
       });
     } finally {
       if (previousWindow === undefined) {

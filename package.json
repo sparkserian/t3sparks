@@ -1,6 +1,7 @@
 {
   "name": "@t3tools/monorepo",
   "private": true,
+  "version": "0.0.5",
   "workspaces": {
     "packages": [
       "apps/*",
@@ -22,6 +23,7 @@
   },
   "type": "module",
   "scripts": {
+    "version": "node scripts/sync-release-version.mjs",
     "dev": "bun run scripts/dev-runner.ts dev",
     "dev:server": "bun run scripts/dev-runner.ts dev:server",
     "dev:web": "bun run scripts/dev-runner.ts dev:web",
@@ -45,6 +47,8 @@
     "dist:desktop:dmg:x64": "bun run scripts/build-desktop-artifact.ts --platform mac --target dmg --arch x64",
     "dist:desktop:linux": "bun run scripts/build-desktop-artifact.ts --platform linux --target AppImage --arch x64",
     "dist:desktop:win": "bun run scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64",
+    "publish:mac-arm64": "node scripts/publish-release.mjs mac-arm64",
+    "publish:win": "node scripts/publish-release.mjs win",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .turbo apps/*/.turbo packages/*/.turbo",
     "sync:vscode-icons": "node scripts/sync-vscode-icons.mjs"
   },

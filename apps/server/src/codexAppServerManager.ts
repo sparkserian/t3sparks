@@ -5,6 +5,7 @@ import readline from "node:readline";
 
 import {
   ApprovalRequestId,
+  type CustomInstruction,
   EventId,
   ProviderItemId,
   ProviderRequestKind,
@@ -115,6 +116,7 @@ export interface CodexAppServerSendTurnInput {
   readonly serviceTier?: string | null;
   readonly effort?: string;
   readonly interactionMode?: ProviderInteractionMode;
+  readonly customInstructions?: ReadonlyArray<CustomInstruction>;
 }
 
 export interface CodexAppServerStartSessionInput {
@@ -406,10 +408,26 @@ export function buildCodexInitializeParams() {
   } as const;
 }
 
+function formatCustomInstructionsForProvider(
+  customInstructions: ReadonlyArray<CustomInstruction> | undefined,
+): string | undefined {
+  if (!customInstructions || customInstructions.length === 0) {
+    return undefined;
+  }
+
+  const sections = customInstructions.map(
+    (instruction, index) =>
+      `${index + 1}. ${instruction.title}\n${instruction.body}`,
+  );
+
+  return ["Additional custom instructions for this turn:", ...sections].join("\n\n");
+}
+
 function buildCodexCollaborationMode(input: {
   readonly interactionMode?: "default" | "plan";
   readonly model?: string;
   readonly effort?: string;
+  readonly customInstructions?: ReadonlyArray<CustomInstruction>;
 }):
   | {
       mode: "default" | "plan";
@@ -424,15 +442,19 @@ function buildCodexCollaborationMode(input: {
     return undefined;
   }
   const model = normalizeCodexModelSlug(input.model) ?? "gpt-5.3-codex";
+  const baseDeveloperInstructions =
+    input.interactionMode === "plan"
+      ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
+      : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS;
+  const customInstructionBlock = formatCustomInstructionsForProvider(input.customInstructions);
   return {
     mode: input.interactionMode,
     settings: {
       model,
       reasoning_effort: input.effort ?? "medium",
-      developer_instructions:
-        input.interactionMode === "plan"
-          ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
-          : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+      developer_instructions: customInstructionBlock
+        ? `${baseDeveloperInstructions}\n\n${customInstructionBlock}`
+        : baseDeveloperInstructions,
     },
   };
 }
@@ -787,6 +809,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
       ...(normalizedModel !== undefined ? { model: normalizedModel } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      ...(input.customInstructions !== undefined
+        ? { customInstructions: input.customInstructions }
+        : {}),
     });
     if (collaborationMode) {
       if (!turnStartParams.model) {

@@ -3,6 +3,7 @@ import {
   FolderIcon,
   GitPullRequestIcon,
   RocketIcon,
+  Settings2Icon,
   SquarePenIcon,
   TerminalIcon,
 } from "lucide-react";
@@ -304,6 +305,8 @@ export default function Sidebar() {
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
+  const announcedAvailableUpdateVersionsRef = useRef(new Set<string>());
+  const announcedDownloadedUpdateVersionsRef = useRef(new Set<string>());
   const pendingApprovalByThreadId = useMemo(() => {
     const map = new Map<ThreadId, boolean>();
     for (const thread of threads) {
@@ -875,6 +878,99 @@ export default function Sidebar() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isElectron || !desktopUpdateState) {
+      return;
+    }
+
+    const bridge = window.desktopBridge;
+    if (!bridge) {
+      return;
+    }
+
+    const availableVersion = desktopUpdateState.availableVersion;
+    if (
+      desktopUpdateState.status === "available" &&
+      availableVersion &&
+      !announcedAvailableUpdateVersionsRef.current.has(availableVersion)
+    ) {
+      announcedAvailableUpdateVersionsRef.current.add(availableVersion);
+      toastManager.add({
+        type: "info",
+        title: "Update available",
+        description: `Version ${availableVersion} is ready to download.`,
+        timeout: 0,
+        data: { dismissAfterVisibleMs: 15_000 },
+        actionProps: {
+          children: "Download",
+          onClick: () => {
+            void bridge
+              .downloadUpdate()
+              .then((result) => {
+                if (!shouldToastDesktopUpdateActionResult(result)) return;
+                const actionError = getDesktopUpdateActionError(result);
+                if (!actionError) return;
+                toastManager.add({
+                  type: "error",
+                  title: "Could not download update",
+                  description: actionError,
+                });
+              })
+              .catch((error) => {
+                toastManager.add({
+                  type: "error",
+                  title: "Could not start update download",
+                  description:
+                    error instanceof Error ? error.message : "An unexpected error occurred.",
+                });
+              });
+          },
+        },
+      });
+    }
+
+    const downloadedVersion = desktopUpdateState.downloadedVersion;
+    if (
+      desktopUpdateState.status === "downloaded" &&
+      downloadedVersion &&
+      !announcedDownloadedUpdateVersionsRef.current.has(downloadedVersion)
+    ) {
+      announcedDownloadedUpdateVersionsRef.current.add(downloadedVersion);
+      toastManager.add({
+        type: "success",
+        title: "Update ready to install",
+        description: `Version ${downloadedVersion} has been downloaded.`,
+        timeout: 0,
+        data: { dismissAfterVisibleMs: 15_000 },
+        actionProps: {
+          children: "Restart",
+          onClick: () => {
+            void bridge
+              .installUpdate()
+              .then((result) => {
+                if (!shouldToastDesktopUpdateActionResult(result)) return;
+                const actionError = getDesktopUpdateActionError(result);
+                if (!actionError) return;
+                toastManager.add({
+                  type: "error",
+                  title: "Could not install update",
+                  description: actionError,
+                });
+              })
+              .catch((error) => {
+                toastManager.add({
+                  type: "error",
+                  title: "Could not install update",
+                  description:
+                    error instanceof Error ? error.message : "An unexpected error occurred.",
+                });
+              });
+          },
+        },
+      });
+    }
+  }, [desktopUpdateState]);
+
   const showDesktopUpdateButton = isElectron && shouldShowDesktopUpdateButton(desktopUpdateState);
 
   const desktopUpdateTooltip = desktopUpdateState
@@ -1362,20 +1458,30 @@ export default function Sidebar() {
                 + New project
               </button>
             ) : null}
-            <div className="flex gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
-                className="flex-1 rounded-md border border-dashed border-border py-2 text-xs text-muted-foreground/70 transition-colors duration-150 hover:border-ring hover:text-muted-foreground"
+                className="rounded-md border border-dashed border-border py-2 text-xs text-muted-foreground/70 transition-colors duration-150 hover:border-ring hover:text-muted-foreground"
                 onClick={() => setAddingProject(true)}
               >
                 Add project
               </button>
               <button
                 type="button"
-                className="flex-1 rounded-md border border-border py-2 text-xs text-muted-foreground/80 transition-colors duration-150 hover:bg-secondary"
+                className="rounded-md border border-border py-2 text-xs text-muted-foreground/80 transition-colors duration-150 hover:bg-secondary"
                 onClick={requestOpenOnboarding}
               >
                 Setup guide
+              </button>
+              <button
+                type="button"
+                className="flex items-center justify-center gap-1 rounded-md border border-border py-2 text-xs text-muted-foreground/80 transition-colors duration-150 hover:bg-secondary"
+                onClick={() => {
+                  void navigate({ to: "/settings" });
+                }}
+              >
+                <Settings2Icon className="size-3.5" />
+                <span>Settings</span>
               </button>
             </div>
             {appSettings.projectHomePath.trim().length === 0 ? (

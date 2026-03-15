@@ -186,6 +186,37 @@ it.effect("accepts provider-scoped model options in thread.turn.start", () =>
   }),
 );
 
+it.effect("accepts custom instructions in thread.turn.start", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeThreadTurnStartCommand({
+      type: "thread.turn.start",
+      commandId: "cmd-turn-custom-instructions",
+      threadId: "thread-1",
+      message: {
+        messageId: "msg-custom-instructions",
+        role: "user",
+        text: "hello",
+        attachments: [],
+      },
+      customInstructions: [
+        {
+          id: "review",
+          title: "Review carefully",
+          body: "Prefer smaller diffs and call out risks.",
+        },
+      ],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.deepStrictEqual(parsed.customInstructions, [
+      {
+        id: "review",
+        title: "Review carefully",
+        body: "Prefer smaller diffs and call out risks.",
+      },
+    ]);
+  }),
+);
+
 it.effect(
   "decodes thread.turn-start-requested defaults for provider, runtime mode, and interaction mode",
   () =>
@@ -193,11 +224,19 @@ it.effect(
       const parsed = yield* decodeThreadTurnStartRequestedPayload({
         threadId: "thread-1",
         messageId: "msg-1",
+        customInstructions: [
+          {
+            id: "review",
+            title: "Review carefully",
+            body: "Prefer smaller diffs and call out risks.",
+          },
+        ],
         createdAt: "2026-01-01T00:00:00.000Z",
       });
       assert.strictEqual(parsed.provider, undefined);
       assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
       assert.strictEqual(parsed.interactionMode, DEFAULT_PROVIDER_INTERACTION_MODE);
+      assert.strictEqual(parsed.customInstructions?.[0]?.id, "review");
     }),
 );
 

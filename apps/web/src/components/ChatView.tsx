@@ -116,6 +116,7 @@ import {
 } from "../lib/turnDiffTree";
 import BranchToolbar from "./BranchToolbar";
 import ConvexControl from "./ConvexControl";
+import CustomInstructionsControl from "./CustomInstructionsControl";
 import GeminiSetupDialog from "./GeminiSetupDialog";
 import GitActionsControl from "./GitActionsControl";
 import {
@@ -125,7 +126,7 @@ import {
 } from "../keybindings";
 import ChatMarkdown from "./ChatMarkdown";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
-import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import {
   BotIcon,
   ChevronDownIcon,
@@ -133,12 +134,14 @@ import {
   ChevronRightIcon,
   CircleAlertIcon,
   FileIcon,
+  FileTextIcon,
   FolderIcon,
   DiffIcon,
   EllipsisIcon,
   FolderClosedIcon,
   LockIcon,
   LockOpenIcon,
+  PlusIcon,
   Undo2Icon,
   XIcon,
   CopyIcon,
@@ -208,6 +211,7 @@ import {
   type AppServiceTier,
   useAppSettings,
 } from "../appSettings";
+import { resolveSelectedCustomInstructions } from "../customInstructions";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -220,6 +224,8 @@ import { selectThreadTerminalState, useTerminalStateStore } from "../terminalSta
 import { clamp } from "effect/Number";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 import { estimateTimelineMessageHeight } from "./timelineHeight";
+import ProjectNotesSheet from "./ProjectNotesSheet";
+import { useProjectNotes } from "../projectNotes";
 
 function formatMessageMeta(createdAt: string, duration: string | null): string {
   if (!duration) return formatTimestamp(createdAt);
@@ -244,6 +250,18 @@ const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
 const WORKTREE_BRANCH_PREFIX = "t3code";
+const DEV_PLAN_PREVIEW_CREATED_AT = new Date().toISOString();
+const DEV_PLAN_PREVIEW = {
+  createdAt: DEV_PLAN_PREVIEW_CREATED_AT,
+  turnId: null,
+  explanation:
+    "This is a dev-only preview so you can inspect the floating composer plan layout before a real planning turn creates one.",
+  steps: [
+    { step: "Audit the current composer plan layout and floating placement", status: "completed" },
+    { step: "Adjust spacing, overlap, and collapse affordance", status: "inProgress" },
+    { step: "Verify collapsed and expanded states in the desktop shell", status: "pending" },
+  ],
+} satisfies NonNullable<ReturnType<typeof deriveActivePlanState>>;
 
 function readLastInvokedScriptByProjectFromStorage(): Record<string, string> {
   const stored = localStorage.getItem(LAST_INVOKED_SCRIPT_BY_PROJECT_KEY);
@@ -597,6 +615,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const setComposerDraftEffort = useComposerDraftStore((store) => store.setEffort);
   const setComposerDraftCodexFastMode = useComposerDraftStore((store) => store.setCodexFastMode);
+  const setComposerDraftSelectedInstructionIds = useComposerDraftStore(
+    (store) => store.setSelectedInstructionIds,
+  );
   const addComposerDraftImage = useComposerDraftStore((store) => store.addImage);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
@@ -661,6 +682,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   } | null>(null);
   const pendingInteractionAnchorFrameRef = useRef<number | null>(null);
   const composerEditorRef = useRef<ComposerPromptEditorHandle>(null);
+  const composerImageInputRef = useRef<HTMLInputElement>(null);
   const composerFormRef = useRef<HTMLFormElement>(null);
   const composerFormHeightRef = useRef(0);
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
@@ -767,7 +789,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const selectedProviderByThreadId = composerDraft.provider;
   const selectedServiceTierSetting = settings.codexServiceTier;
   const selectedServiceTier = resolveAppServiceTier(selectedServiceTierSetting);
-  const selectedProvider: ProviderKind = selectedProviderByThreadId ?? sessionProvider ?? "codex";
+  const selectedProvider: ProviderKind = normalizeActiveComposerProvider(
+    selectedProviderByThreadId ?? sessionProvider ?? null,
+  );
+  const canAttachImages = selectedProvider === "codex";
   const baseThreadModel = resolveModelSlugForProvider(
     selectedProvider,
     activeThread?.model ?? activeProject?.model ?? getDefaultModel(selectedProvider),
@@ -789,6 +814,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const selectedEffort = composerDraft.effort ?? getDefaultReasoningEffort(selectedProvider);
   const selectedCodexFastModeEnabled =
     selectedProvider === "codex" ? composerDraft.codexFastMode : false;
+  const selectedCustomInstructions = useMemo(
+    () =>
+      resolveSelectedCustomInstructions(
+        settings.customInstructions,
+        composerDraft.selectedInstructionIds,
+      ),
+    [composerDraft.selectedInstructionIds, settings.customInstructions],
+  );
   const selectedModelOptionsForDispatch = useMemo(() => {
     if (selectedProvider !== "codex") {
       return undefined;
@@ -893,9 +926,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
       activeLatestTurn?.turnId ?? null,
     );
   }, [activeLatestTurn?.turnId, activeThread?.proposedPlans, latestTurnSettled]);
-  const activePlan = useMemo(
+  const derivedActivePlan = useMemo(
     () => deriveActivePlanState(threadActivities, activeLatestTurn?.turnId ?? undefined),
     [activeLatestTurn?.turnId, threadActivities],
+  );
+  const activePlan = useMemo(
+    () =>
+      derivedActivePlan ??
+      (import.meta.env.DEV && interactionMode === "plan" ? DEV_PLAN_PREVIEW : null),
+    [derivedActivePlan, interactionMode],
   );
   const showPlanFollowUpPrompt =
     pendingUserInputs.length === 0 &&
@@ -904,6 +943,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     activeProposedPlan !== null;
   const activePendingApproval = pendingApprovals[0] ?? null;
   const isComposerApprovalState = activePendingApproval !== null;
+  const showComposerOverlayPrimaryAction =
+    !activePendingApproval && pendingUserInputs.length === 0 && !showPlanFollowUpPrompt;
   const hasComposerHeader =
     isComposerApprovalState ||
     pendingUserInputs.length > 0 ||
@@ -2345,6 +2386,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   const addComposerImages = (files: File[]) => {
     if (!activeThreadId || files.length === 0) return;
+    if (!canAttachImages) {
+      setThreadError(activeThreadId, "Image attachments currently support Codex only.");
+      return;
+    }
 
     const nextImages: ComposerImageAttachment[] = [];
     let nextImageCount = composerImagesRef.current.length;
@@ -2382,6 +2427,23 @@ export default function ChatView({ threadId }: ChatViewProps) {
       addComposerImagesToDraft(nextImages);
     }
     setThreadError(activeThreadId, error);
+  };
+
+  const openComposerImagePicker = () => {
+    const input = composerImageInputRef.current;
+    if (!input) {
+      return;
+    }
+    input.value = "";
+    input.click();
+  };
+
+  const onComposerImageInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    if (files.length > 0) {
+      addComposerImages(files);
+    }
+    event.target.value = "";
   };
 
   const removeComposerImage = (imageId: string) => {
@@ -2491,6 +2553,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
     e?.preventDefault();
     const api = readNativeApi();
     if (!api || !activeThread || isSendBusy || isConnecting || sendInFlightRef.current) return;
+    if (!canAttachImages && composerImages.length > 0) {
+      setThreadError(activeThread.id, "Image attachments currently support Codex only.");
+      return;
+    }
     if (!ensureGeminiCanRun()) return;
     if (activePendingProgress) {
       onAdvanceActivePendingUserInput();
@@ -2720,13 +2786,20 @@ export default function ChatView({ threadId }: ChatViewProps) {
           : {}),
         provider: selectedProvider,
         assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
+        ...(selectedCustomInstructions.length > 0
+          ? { customInstructions: selectedCustomInstructions }
+          : {}),
         runtimeMode,
         interactionMode,
         createdAt: messageCreatedAt,
       });
       turnStartSucceeded = true;
       if (isFirstMessage) {
+        const retainedCustomInstructionIds = composerDraft.selectedInstructionIds;
         clearDraftThread(threadIdForSend);
+        if (retainedCustomInstructionIds.length > 0) {
+          setComposerDraftSelectedInstructionIds(threadIdForSend, retainedCustomInstructionIds);
+        }
       }
     })().catch(async (err: unknown) => {
       if (createdServerThreadForLocalDraft && !turnStartSucceeded) {
@@ -2997,6 +3070,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
             ? { modelOptions: selectedModelOptionsForDispatch }
             : {}),
           assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
+          ...(selectedCustomInstructions.length > 0
+            ? { customInstructions: selectedCustomInstructions }
+            : {}),
           runtimeMode,
           interactionMode: nextInteractionMode,
           createdAt: messageCreatedAt,
@@ -3025,6 +3101,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       persistThreadSettingsForNextTurn,
       runtimeMode,
       selectedModel,
+      selectedCustomInstructions,
       selectedModelOptionsForDispatch,
       selectedProvider,
       setComposerDraftInteractionMode,
@@ -3096,6 +3173,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
             ? { modelOptions: selectedModelOptionsForDispatch }
             : {}),
           assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
+          ...(selectedCustomInstructions.length > 0
+            ? { customInstructions: selectedCustomInstructions }
+            : {}),
           runtimeMode,
           interactionMode: "default",
           createdAt,
@@ -3142,6 +3222,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     navigate,
     runtimeMode,
     selectedModel,
+    selectedCustomInstructions,
     selectedModelOptionsForDispatch,
     selectedProvider,
     settings.enableAssistantStreaming,
@@ -3491,6 +3572,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           activeThreadId={activeThread.id}
           activeThreadTitle={activeThread.title}
           activeProjectName={activeProject?.name}
+          activeProjectCwd={activeProject?.cwd ?? null}
           openInCwd={activeThread.worktreePath ?? activeProject?.cwd ?? null}
           activeProjectScripts={activeProject?.scripts}
           preferredScriptId={
@@ -3562,17 +3644,17 @@ export default function ChatView({ threadId }: ChatViewProps) {
           className="mx-auto w-full min-w-0 max-w-3xl"
           data-chat-composer-form="true"
         >
-          <div
-            className={`group rounded-[20px] border bg-card transition-colors duration-200 focus-within:border-ring/45 ${
-              isDragOverComposer ? "border-primary/70 bg-accent/30" : "border-border"
-            }`}
-            onDragEnter={onComposerDragEnter}
-            onDragOver={onComposerDragOver}
-            onDragLeave={onComposerDragLeave}
-            onDrop={onComposerDrop}
-          >
+          <input
+            ref={composerImageInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={onComposerImageInputChange}
+          />
+          <div className={cn("relative", activePlan ? "pt-2 sm:pt-2.5" : "")}>
             {activePlan ? (
-              <div className="border-border/65 border-b bg-muted/18">
+              <div className="pointer-events-none absolute inset-x-2 bottom-[calc(100%-18px)] z-10 sm:inset-x-3 sm:bottom-[calc(100%-20px)]">
                 <ComposerPlanPanel
                   activePlan={activePlan}
                   collapsed={activePlanPanelCollapsed}
@@ -3580,7 +3662,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 />
               </div>
             ) : null}
-            {activePendingApproval ? (
+            <div
+              className={`group rounded-[20px] border bg-card transition-colors duration-200 focus-within:border-ring/45 ${
+                isDragOverComposer ? "border-primary/70 bg-accent/30" : "border-border"
+              }`}
+              onDragEnter={onComposerDragEnter}
+              onDragOver={onComposerDragOver}
+              onDragLeave={onComposerDragLeave}
+              onDrop={onComposerDrop}
+            >
+              {activePendingApproval ? (
               <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
                 <ComposerPendingApprovalPanel
                   approval={activePendingApproval}
@@ -3606,13 +3697,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
               </div>
             ) : null}
 
-            {/* Textarea area */}
-            <div
-              className={cn(
-                "relative px-3 pb-2 sm:px-4",
-                hasComposerHeader ? "pt-2.5 sm:pt-3" : "pt-3.5 sm:pt-4",
-              )}
-            >
+              {/* Textarea area */}
+              <div
+                className={cn(
+                  "relative px-3 pb-2 sm:px-4",
+                  hasComposerHeader ? "pt-2.5 sm:pt-3" : "pt-3.5 sm:pt-4",
+                )}
+              >
               {composerMenuOpen && !isComposerApprovalState && (
                 <div className="absolute inset-x-0 bottom-full z-20 mb-2 px-1">
                   <ComposerCommandMenu
@@ -3691,36 +3782,120 @@ export default function ChatView({ threadId }: ChatViewProps) {
                   ))}
                 </div>
               )}
-              <ComposerPromptEditor
-                ref={composerEditorRef}
-                value={
-                  isComposerApprovalState
-                    ? ""
-                    : activePendingProgress
-                      ? activePendingProgress.customAnswer
-                      : prompt
-                }
-                cursor={composerCursor}
-                onChange={onPromptChange}
-                onCommandKeyDown={onComposerCommandKey}
-                onPaste={onComposerPaste}
-                placeholder={
-                  isComposerApprovalState
-                    ? (activePendingApproval?.detail ?? "Resolve this approval request to continue")
-                    : activePendingProgress
-                    ? "Type your own answer, or leave this blank to use the selected option"
-                    : showPlanFollowUpPrompt && activeProposedPlan
-                      ? "Add feedback to refine the plan, or leave this blank to implement it"
-                      : phase === "disconnected"
-                        ? "Ask for follow-up changes or attach images"
-                        : "Ask anything, @tag files/folders, or use /model"
-                }
-                disabled={isConnecting || isComposerApprovalState}
-              />
-            </div>
+              <div className="relative">
+                {showComposerOverlayPrimaryAction ? (
+                  <div className="pointer-events-none absolute right-1 top-1 z-10 sm:right-0 sm:top-0.5">
+                    {phase === "running" ? (
+                      <button
+                        type="button"
+                        className="pointer-events-auto flex size-8 items-center justify-center rounded-full bg-rose-500/90 text-white transition-all duration-150 hover:bg-rose-500 hover:scale-105"
+                        onClick={() => void onInterrupt()}
+                        aria-label="Stop generation"
+                      >
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 12 12"
+                          fill="currentColor"
+                          aria-hidden="true"
+                        >
+                          <rect x="2" y="2" width="8" height="8" rx="1.5" />
+                        </svg>
+                      </button>
+                    ) : (
+                      <button
+                        type="submit"
+                        className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full bg-primary/90 text-primary-foreground transition-all duration-150 hover:bg-primary hover:scale-105 disabled:opacity-30 disabled:hover:scale-100"
+                        disabled={
+                          isSendBusy ||
+                          isConnecting ||
+                          (!prompt.trim() && composerImages.length === 0)
+                        }
+                        aria-label={
+                          isConnecting
+                            ? "Connecting"
+                            : isPreparingWorktree
+                              ? "Preparing worktree"
+                              : isSendBusy
+                                ? "Sending"
+                                : "Send message"
+                        }
+                        title={isPreparingWorktree ? "Preparing worktree" : "Send message"}
+                      >
+                        {isConnecting || isSendBusy ? (
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 14 14"
+                            fill="none"
+                            className="animate-spin"
+                            aria-hidden="true"
+                          >
+                            <circle
+                              cx="7"
+                              cy="7"
+                              r="5.5"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                              strokeLinecap="round"
+                              strokeDasharray="20 12"
+                            />
+                          </svg>
+                        ) : (
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 14 14"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                ) : null}
+                <ComposerPromptEditor
+                  ref={composerEditorRef}
+                  {...(showComposerOverlayPrimaryAction
+                    ? { className: "pr-12 sm:pr-13" }
+                    : {})}
+                  value={
+                    isComposerApprovalState
+                      ? ""
+                      : activePendingProgress
+                        ? activePendingProgress.customAnswer
+                        : prompt
+                  }
+                  cursor={composerCursor}
+                  onChange={onPromptChange}
+                  onCommandKeyDown={onComposerCommandKey}
+                  onPaste={onComposerPaste}
+                  placeholder={
+                    isComposerApprovalState
+                      ? (activePendingApproval?.detail ?? "Resolve this approval request to continue")
+                      : activePendingProgress
+                      ? "Type your own answer, or leave this blank to use the selected option"
+                      : showPlanFollowUpPrompt && activeProposedPlan
+                        ? "Add feedback to refine the plan, or leave this blank to implement it"
+                        : phase === "disconnected"
+                          ? "Ask for follow-up changes or attach images"
+                          : "Ask anything, @tag files/folders, or use /model"
+                  }
+                  disabled={isConnecting || isComposerApprovalState}
+                />
+              </div>
+              </div>
 
-            {/* Bottom toolbar */}
-            {activePendingApproval ? (
+              {/* Bottom toolbar */}
+              {activePendingApproval ? (
               <div className="flex items-center justify-end gap-2 px-2.5 pb-2.5 sm:px-3 sm:pb-3">
                 <ComposerPendingApprovalActions
                   requestId={activePendingApproval.requestId}
@@ -3728,9 +3903,46 @@ export default function ChatView({ threadId }: ChatViewProps) {
                   onRespondToApproval={onRespondToApproval}
                 />
               </div>
-            ) : (
+              ) : (
               <div className="flex flex-wrap items-center justify-between gap-2 px-2.5 pb-2.5 sm:flex-nowrap sm:gap-0 sm:px-3 sm:pb-3">
-                <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible">
+                <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pr-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <Menu>
+                    <MenuTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          className="relative shrink-0 px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-2.5"
+                          size="sm"
+                          type="button"
+                          title={
+                            canAttachImages
+                              ? "Add attachment"
+                              : "Image attachments currently support Codex only."
+                          }
+                          disabled={!canAttachImages}
+                          aria-label="Add attachment"
+                        />
+                      }
+                    >
+                      <PlusIcon />
+                      {composerImages.length > 0 ? (
+                        <Badge
+                          variant="secondary"
+                          className="absolute -right-1 -top-1 h-4 min-w-4 px-1 text-[10px]"
+                        >
+                          {composerImages.length}
+                        </Badge>
+                      ) : null}
+                    </MenuTrigger>
+                    <MenuPopup align="start" side="top">
+                      <MenuItem disabled={!canAttachImages} onClick={openComposerImagePicker}>
+                        Image
+                      </MenuItem>
+                    </MenuPopup>
+                  </Menu>
+
+                  <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
+
                   {/* Provider/model picker */}
                   <ProviderModelPicker
                     provider={selectedProvider}
@@ -3821,6 +4033,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
                   {activeProject ? (
                     <>
                       <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
+                      <CustomInstructionsControl
+                        selectedInstructionIds={composerDraft.selectedInstructionIds}
+                        onSelectedInstructionIdsChange={(instructionIds) =>
+                          setComposerDraftSelectedInstructionIds(threadId, instructionIds)
+                        }
+                      />
+                      <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
                       <ConvexControl
                         threadId={activeThread.id}
                         cwd={gitCwd ?? activeProject.cwd}
@@ -3853,10 +4072,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 </div>
 
                 {/* Right side: send / stop button */}
+                {activePendingProgress || showPlanFollowUpPrompt ? (
                 <div className="flex shrink-0 items-center gap-2">
-                  {isPreparingWorktree ? (
-                    <span className="text-muted-foreground/70 text-xs">Preparing worktree...</span>
-                  ) : null}
                   {activePendingProgress ? (
                     <div className="flex items-center gap-2">
                       {activePendingProgress.questionIndex > 0 ? (
@@ -3888,130 +4105,57 @@ export default function ChatView({ threadId }: ChatViewProps) {
                             : "Next question"}
                       </Button>
                     </div>
-                  ) : phase === "running" ? (
-                    <button
-                      type="button"
-                      className="flex size-8 items-center justify-center rounded-full bg-rose-500/90 text-white transition-all duration-150 hover:bg-rose-500 hover:scale-105 sm:h-8 sm:w-8"
-                      onClick={() => void onInterrupt()}
-                      aria-label="Stop generation"
-                    >
-                      <svg
-                        width="12"
-                        height="12"
-                        viewBox="0 0 12 12"
-                        fill="currentColor"
-                        aria-hidden="true"
+                  ) : showPlanFollowUpPrompt ? (
+                    prompt.trim().length > 0 ? (
+                      <Button
+                        type="submit"
+                        size="sm"
+                        className="h-9 rounded-full px-4 sm:h-8"
+                        disabled={isSendBusy || isConnecting}
                       >
-                        <rect x="2" y="2" width="8" height="8" rx="1.5" />
-                      </svg>
-                    </button>
-                  ) : pendingUserInputs.length === 0 ? (
-                    showPlanFollowUpPrompt ? (
-                      prompt.trim().length > 0 ? (
+                        {isConnecting || isSendBusy ? "Sending..." : "Refine"}
+                      </Button>
+                    ) : (
+                      <div className="flex items-center">
                         <Button
                           type="submit"
                           size="sm"
-                          className="h-9 rounded-full px-4 sm:h-8"
+                          className="h-9 rounded-l-full rounded-r-none px-4 sm:h-8"
                           disabled={isSendBusy || isConnecting}
                         >
-                          {isConnecting || isSendBusy ? "Sending..." : "Refine"}
+                          {isConnecting || isSendBusy ? "Sending..." : "Implement"}
                         </Button>
-                      ) : (
-                        <div className="flex items-center">
-                          <Button
-                            type="submit"
-                            size="sm"
-                            className="h-9 rounded-l-full rounded-r-none px-4 sm:h-8"
-                            disabled={isSendBusy || isConnecting}
-                          >
-                            {isConnecting || isSendBusy ? "Sending..." : "Implement"}
-                          </Button>
-                          <Menu>
-                            <MenuTrigger
-                              render={
-                                <Button
-                                  size="sm"
-                                  variant="default"
-                                  className="h-9 rounded-l-none rounded-r-full border-l-white/12 px-2 sm:h-8"
-                                  aria-label="Implementation actions"
-                                  disabled={isSendBusy || isConnecting}
-                                />
-                              }
-                            >
-                              <ChevronDownIcon className="size-3.5" />
-                            </MenuTrigger>
-                            <MenuPopup align="end" side="top">
-                              <MenuItem
+                        <Menu>
+                          <MenuTrigger
+                            render={
+                              <Button
+                                size="sm"
+                                variant="default"
+                                className="h-9 rounded-l-none rounded-r-full border-l-white/12 px-2 sm:h-8"
+                                aria-label="Implementation actions"
                                 disabled={isSendBusy || isConnecting}
-                                onClick={() => void onImplementPlanInNewThread()}
-                              >
-                                Implement in new thread
-                              </MenuItem>
-                            </MenuPopup>
-                          </Menu>
-                        </div>
-                      )
-                    ) : (
-                      <button
-                        type="submit"
-                        className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/90 text-primary-foreground transition-all duration-150 hover:bg-primary hover:scale-105 disabled:opacity-30 disabled:hover:scale-100 sm:h-8 sm:w-8"
-                        disabled={
-                          isSendBusy ||
-                          isConnecting ||
-                          (!prompt.trim() && composerImages.length === 0)
-                        }
-                        aria-label={
-                          isConnecting
-                            ? "Connecting"
-                            : isPreparingWorktree
-                              ? "Preparing worktree"
-                              : isSendBusy
-                                ? "Sending"
-                                : "Send message"
-                        }
-                      >
-                        {isConnecting || isSendBusy ? (
-                          <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 14 14"
-                            fill="none"
-                            className="animate-spin"
-                            aria-hidden="true"
+                              />
+                            }
                           >
-                            <circle
-                              cx="7"
-                              cy="7"
-                              r="5.5"
-                              stroke="currentColor"
-                              strokeWidth="1.5"
-                              strokeLinecap="round"
-                              strokeDasharray="20 12"
-                            />
-                          </svg>
-                        ) : (
-                          <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 14 14"
-                            fill="none"
-                            aria-hidden="true"
-                          >
-                            <path
-                              d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
-                              stroke="currentColor"
-                              strokeWidth="1.8"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        )}
-                      </button>
+                            <ChevronDownIcon className="size-3.5" />
+                          </MenuTrigger>
+                          <MenuPopup align="end" side="top">
+                            <MenuItem
+                              disabled={isSendBusy || isConnecting}
+                              onClick={() => void onImplementPlanInNewThread()}
+                            >
+                              Implement in new thread
+                            </MenuItem>
+                          </MenuPopup>
+                        </Menu>
+                      </div>
                     )
                   ) : null}
                 </div>
+                ) : null}
               </div>
-            )}
+              )}
+            </div>
           </div>
         </form>
       </div>
@@ -4141,6 +4285,7 @@ interface ChatHeaderProps {
   activeThreadId: ThreadId;
   activeThreadTitle: string;
   activeProjectName: string | undefined;
+  activeProjectCwd: string | null;
   openInCwd: string | null;
   activeProjectScripts: ProjectScript[] | undefined;
   preferredScriptId: string | null;
@@ -4159,6 +4304,7 @@ const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   activeThreadTitle,
   activeProjectName,
+  activeProjectCwd,
   openInCwd,
   activeProjectScripts,
   preferredScriptId,
@@ -4172,6 +4318,10 @@ const ChatHeader = memo(function ChatHeader({
   onUpdateProjectScript,
   onToggleDiff,
 }: ChatHeaderProps) {
+  const [projectNotesOpen, setProjectNotesOpen] = useState(false);
+  const projectNotes = useProjectNotes(activeProjectCwd);
+  const hasProjectNotes = projectNotes.length > 0;
+
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
@@ -4198,6 +4348,32 @@ const ChatHeader = memo(function ChatHeader({
             onAddScript={onAddProjectScript}
             onUpdateScript={onUpdateProjectScript}
           />
+        )}
+        {activeProjectName && activeProjectCwd && (
+          <>
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => setProjectNotesOpen(true)}
+              title="Open project notes"
+            >
+              <span className="relative inline-flex">
+                <FileTextIcon className="size-3.5" />
+                {hasProjectNotes && (
+                  <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-primary" />
+                )}
+              </span>
+              <span className="sr-only @sm/header-actions:not-sr-only @sm/header-actions:ml-0.5">
+                Notes
+              </span>
+            </Button>
+            <ProjectNotesSheet
+              open={projectNotesOpen}
+              onOpenChange={setProjectNotesOpen}
+              projectName={activeProjectName}
+              projectCwd={activeProjectCwd}
+            />
+          </>
         )}
         {activeProjectName && (
           <OpenInPicker
@@ -4234,7 +4410,15 @@ const ChatHeader = memo(function ChatHeader({
 });
 
 const ThreadErrorBanner = memo(function ThreadErrorBanner({ error }: { error: string | null }) {
-  if (!error) return null;
+  const [dismissedError, setDismissedError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!error || (dismissedError !== null && dismissedError !== error)) {
+      setDismissedError(null);
+    }
+  }, [dismissedError, error]);
+
+  if (!error || dismissedError === error) return null;
   return (
     <div className="pt-3 mx-auto max-w-3xl">
       <Alert variant="error">
@@ -4242,6 +4426,16 @@ const ThreadErrorBanner = memo(function ThreadErrorBanner({ error }: { error: st
         <AlertDescription className="line-clamp-3" title={error}>
           {error}
         </AlertDescription>
+        <AlertAction>
+          <Button
+            aria-label="Dismiss error"
+            onClick={() => setDismissedError(error)}
+            size="icon-xs"
+            variant="ghost"
+          >
+            <XIcon className="size-3.5" />
+          </Button>
+        </AlertAction>
       </Alert>
     </div>
   );
@@ -4252,7 +4446,19 @@ const ProviderHealthBanner = memo(function ProviderHealthBanner({
 }: {
   status: ServerProviderStatus | null;
 }) {
-  if (!status || status.status === "ready") {
+  const statusKey =
+    status && status.status !== "ready"
+      ? `${status.provider}:${status.status}:${status.message ?? ""}`
+      : null;
+  const [dismissedStatusKey, setDismissedStatusKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!statusKey || (dismissedStatusKey !== null && dismissedStatusKey !== statusKey)) {
+      setDismissedStatusKey(null);
+    }
+  }, [dismissedStatusKey, statusKey]);
+
+  if (!status || status.status === "ready" || dismissedStatusKey === statusKey) {
     return null;
   }
 
@@ -4271,6 +4477,16 @@ const ProviderHealthBanner = memo(function ProviderHealthBanner({
         <AlertDescription className="line-clamp-3" title={status.message ?? defaultMessage}>
           {status.message ?? defaultMessage}
         </AlertDescription>
+        <AlertAction>
+          <Button
+            aria-label="Dismiss provider status"
+            onClick={() => setDismissedStatusKey(statusKey)}
+            size="icon-xs"
+            variant="ghost"
+          >
+            <XIcon className="size-3.5" />
+          </Button>
+        </AlertAction>
       </Alert>
     </div>
   );
@@ -4378,37 +4594,42 @@ const ComposerPlanPanel = memo(function ComposerPlanPanel({
     activeStep?.step || activePlan.explanation?.trim() || "Working plan";
 
   return (
-    <div className="px-3 py-2 sm:px-4">
+    <div className="pointer-events-auto rounded-[16px] border border-border/70 bg-card/98 shadow-md shadow-black/5">
       <button
         type="button"
-        className="flex w-full items-center gap-2 rounded-[14px] border border-border/60 bg-background/65 px-3 py-2 text-left transition-colors hover:bg-background/80"
+        className="flex w-full items-center gap-2 rounded-[16px] px-3 py-2 text-left transition-colors hover:bg-background/35"
         onClick={onToggleCollapsed}
         aria-expanded={!collapsed}
       >
-        <Badge variant="secondary">Plan</Badge>
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+        <Badge variant="secondary" className="h-5 px-1.5 text-[10px] uppercase tracking-[0.16em]">
+          Plan
+        </Badge>
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
           {collapsedSummary}
         </span>
-        <span className="hidden text-xs text-muted-foreground sm:inline">
+        <span className="hidden text-[11px] text-muted-foreground sm:inline">
           {activeStep ? `Now: ${activeStep.status === "completed" ? "Done" : activeStep.status === "inProgress" ? "In progress" : "Pending"}` : `${activePlan.steps.length} step${activePlan.steps.length === 1 ? "" : "s"}`}{" "}
           · Updated {formatTimestamp(activePlan.createdAt)}
         </span>
         <ChevronDownIcon
           aria-hidden="true"
-          className={cn("size-4 shrink-0 text-muted-foreground transition-transform", collapsed ? "" : "rotate-180")}
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform",
+            collapsed ? "rotate-180" : "",
+          )}
         />
       </button>
       {!collapsed ? (
-        <div className="mt-2 space-y-2 rounded-[16px] border border-border/55 bg-background/50 p-3">
+        <div className="space-y-1.5 border-t border-border/60 px-3 pb-3 pt-2">
           {activePlan.explanation ? (
-            <p className="text-sm text-muted-foreground">{activePlan.explanation}</p>
+            <p className="text-[13px] text-muted-foreground">{activePlan.explanation}</p>
           ) : null}
           {activePlan.steps.length > 0 ? (
-            <div className="space-y-1.5">
+            <div className="space-y-1">
               {activePlan.steps.map((step) => (
                 <div
                   key={`${step.status}:${step.step}`}
-                  className="flex items-start gap-2 rounded-xl border border-border/45 bg-background/75 px-2.5 py-2"
+                  className="flex items-start gap-2 rounded-lg border border-border/45 bg-background/75 px-2.5 py-1.5"
                 >
                   <Badge
                     variant={
@@ -4418,7 +4639,7 @@ const ComposerPlanPanel = memo(function ComposerPlanPanel({
                           ? "secondary"
                           : "outline"
                     }
-                    className="shrink-0"
+                    className="shrink-0 px-1.5 py-0 text-[10px]"
                   >
                     {step.status === "inProgress"
                       ? "In progress"
@@ -4426,7 +4647,7 @@ const ComposerPlanPanel = memo(function ComposerPlanPanel({
                         ? "Done"
                         : "Pending"}
                   </Badge>
-                  <div className="min-w-0 flex-1 text-sm">{step.step}</div>
+                  <div className="min-w-0 flex-1 text-[13px] leading-5">{step.step}</div>
                 </div>
               ))}
             </div>
@@ -5492,6 +5713,15 @@ const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   claudeCode: ClaudeAI,
   cursor: CursorIcon,
 };
+
+function normalizeActiveComposerProvider(
+  provider: ProviderKind | null | undefined,
+): ProviderKind {
+  if (provider === "gemini") {
+    return "codex";
+  }
+  return provider ?? "codex";
+}
 
 function resolveModelForProviderPicker(
   provider: ProviderKind,

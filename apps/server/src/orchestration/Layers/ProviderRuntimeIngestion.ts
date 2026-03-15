@@ -501,6 +501,12 @@ const make = Effect.gen(function* () {
     lookup: () => Effect.succeed(""),
   });
 
+  const assistantMessageContentSeenByMessageId = yield* Cache.make<MessageId, boolean>({
+    capacity: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY,
+    timeToLive: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL,
+    lookup: () => Effect.succeed(false),
+  });
+
   const bufferedProposedPlanById = yield* Cache.make<string, { text: string; createdAt: string }>({
     capacity: BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY,
     timeToLive: BUFFERED_PROPOSED_PLAN_BY_ID_TTL,
@@ -529,32 +535,16 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const forgetAssistantMessageId = (
-    threadId: ThreadId,
-    turnId: TurnId,
-    messageId: MessageId,
-  ) =>
-    Cache.getOption(turnMessageIdsByTurnKey, providerTurnKey(threadId, turnId)).pipe(
-      Effect.flatMap((existingIds) =>
-        Option.match(existingIds, {
-          onNone: () => Effect.void,
-          onSome: (ids) => {
-            const nextIds = new Set(ids);
-            nextIds.delete(messageId);
-            if (nextIds.size === 0) {
-              return Cache.invalidate(turnMessageIdsByTurnKey, providerTurnKey(threadId, turnId));
-            }
-            return Cache.set(turnMessageIdsByTurnKey, providerTurnKey(threadId, turnId), nextIds);
-          },
-        }),
-      ),
-    );
-
   const getAssistantMessageIdsForTurn = (threadId: ThreadId, turnId: TurnId) =>
     Cache.getOption(turnMessageIdsByTurnKey, providerTurnKey(threadId, turnId)).pipe(
       Effect.map((existingIds) =>
         Option.getOrElse(existingIds, (): Set<MessageId> => new Set<MessageId>()),
       ),
+    );
+
+  const getPrimaryAssistantMessageIdForTurn = (threadId: ThreadId, turnId: TurnId) =>
+    getAssistantMessageIdsForTurn(threadId, turnId).pipe(
+      Effect.map((existingIds) => existingIds.values().next().value as MessageId | undefined),
     );
 
   const clearAssistantMessageIdsForTurn = (threadId: ThreadId, turnId: TurnId) =>
@@ -592,6 +582,17 @@ const make = Effect.gen(function* () {
   const clearBufferedAssistantText = (messageId: MessageId) =>
     Cache.invalidate(bufferedAssistantTextByMessageId, messageId);
 
+  const markAssistantMessageContentSeen = (messageId: MessageId) =>
+    Cache.set(assistantMessageContentSeenByMessageId, messageId, true);
+
+  const hasAssistantMessageContent = (messageId: MessageId) =>
+    Cache.getOption(assistantMessageContentSeenByMessageId, messageId).pipe(
+      Effect.map((contentSeen) => Option.getOrElse(contentSeen, () => false)),
+    );
+
+  const clearAssistantMessageContentSeen = (messageId: MessageId) =>
+    Cache.invalidate(assistantMessageContentSeenByMessageId, messageId);
+
   const appendBufferedProposedPlan = (planId: string, delta: string, createdAt: string) =>
     Cache.getOption(bufferedProposedPlanById, planId).pipe(
       Effect.flatMap((existingEntry) => {
@@ -615,7 +616,11 @@ const make = Effect.gen(function* () {
   const clearBufferedProposedPlan = (planId: string) =>
     Cache.invalidate(bufferedProposedPlanById, planId);
 
-  const clearAssistantMessageState = (messageId: MessageId) => clearBufferedAssistantText(messageId);
+  const clearAssistantMessageState = (messageId: MessageId) =>
+    Effect.all([
+      clearBufferedAssistantText(messageId),
+      clearAssistantMessageContentSeen(messageId),
+    ]).pipe(Effect.asVoid);
 
   const finalizeAssistantMessage = (input: {
     event: ProviderRuntimeEvent;
@@ -629,10 +634,11 @@ const make = Effect.gen(function* () {
   }) =>
     Effect.gen(function* () {
       const bufferedText = yield* takeBufferedAssistantText(input.messageId);
+      const hasExistingContent = yield* hasAssistantMessageContent(input.messageId);
       const text =
         bufferedText.length > 0
           ? bufferedText
-          : (input.fallbackText?.trim().length ?? 0) > 0
+          : !hasExistingContent && (input.fallbackText?.trim().length ?? 0) > 0
             ? input.fallbackText!
             : "";
 
@@ -657,6 +663,29 @@ const make = Effect.gen(function* () {
         createdAt: input.createdAt,
       });
       yield* clearAssistantMessageState(input.messageId);
+    });
+
+  const fallbackAssistantMessageIdForEvent = (event: ProviderRuntimeEvent) =>
+    MessageId.makeUnsafe(`assistant:${event.itemId ?? event.turnId ?? event.eventId}`);
+
+  const resolveAssistantMessageIdForEvent = (
+    threadId: ThreadId,
+    event: ProviderRuntimeEvent,
+  ) =>
+    Effect.gen(function* () {
+      const turnId = toTurnId(event.turnId);
+      if (!turnId) {
+        return fallbackAssistantMessageIdForEvent(event);
+      }
+
+      const existingMessageId = yield* getPrimaryAssistantMessageIdForTurn(threadId, turnId);
+      if (existingMessageId) {
+        return existingMessageId;
+      }
+
+      const nextMessageId = fallbackAssistantMessageIdForEvent(event);
+      yield* rememberAssistantMessageId(threadId, turnId, nextMessageId);
+      return nextMessageId;
     });
 
   const upsertProposedPlan = (input: {
@@ -874,13 +903,9 @@ const make = Effect.gen(function* () {
         event.type === "turn.proposed.delta" ? event.payload.delta : undefined;
 
       if (assistantDelta && assistantDelta.length > 0) {
-        const assistantMessageId = MessageId.makeUnsafe(
-          `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
-        );
+        const assistantMessageId = yield* resolveAssistantMessageIdForEvent(thread.id, event);
         const turnId = toTurnId(event.turnId);
-        if (turnId) {
-          yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
-        }
+        yield* markAssistantMessageContentSeen(assistantMessageId);
 
         const assistantDeliveryMode = yield* Ref.get(assistantDeliveryModeRef);
         if (assistantDeliveryMode === "buffered") {
@@ -931,11 +956,8 @@ const make = Effect.gen(function* () {
           : undefined;
 
       if (assistantCompletion) {
-        const assistantMessageId = assistantCompletion.messageId;
+        const assistantMessageId = yield* resolveAssistantMessageIdForEvent(thread.id, event);
         const turnId = toTurnId(event.turnId);
-        if (turnId) {
-          yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
-        }
 
         yield* finalizeAssistantMessage({
           event,
@@ -949,10 +971,6 @@ const make = Effect.gen(function* () {
             ? { fallbackText: assistantCompletion.fallbackText }
             : {}),
         });
-
-        if (turnId) {
-          yield* forgetAssistantMessageId(thread.id, turnId, assistantMessageId);
-        }
       }
 
       if (proposedPlanCompletion) {

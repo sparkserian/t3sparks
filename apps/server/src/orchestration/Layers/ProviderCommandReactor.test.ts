@@ -382,6 +382,47 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("forwards selected custom instructions to the provider turn request", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-custom-instructions"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-custom-instructions"),
+          role: "user",
+          text: "hello",
+          attachments: [],
+        },
+        customInstructions: [
+          {
+            id: "review",
+            title: "Review carefully",
+            body: "Prefer smaller diffs and call out risky assumptions.",
+          },
+        ],
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      customInstructions: [
+        {
+          id: "review",
+          title: "Review carefully",
+          body: "Prefer smaller diffs and call out risky assumptions.",
+        },
+      ],
+    });
+  });
+
   it("reuses the same provider session when runtime mode is unchanged", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

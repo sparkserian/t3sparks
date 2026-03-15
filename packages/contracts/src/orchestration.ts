@@ -68,6 +68,10 @@ export type ProviderUserInputAnswers = typeof ProviderUserInputAnswers.Type;
 export const PROVIDER_SEND_TURN_MAX_INPUT_CHARS = 120_000;
 export const PROVIDER_SEND_TURN_MAX_ATTACHMENTS = 8;
 export const PROVIDER_SEND_TURN_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+export const CUSTOM_INSTRUCTION_MAX_COUNT = 32;
+export const CUSTOM_INSTRUCTION_ID_MAX_CHARS = 128;
+export const CUSTOM_INSTRUCTION_TITLE_MAX_CHARS = 120;
+export const CUSTOM_INSTRUCTION_BODY_MAX_CHARS = 4_000;
 const PROVIDER_SEND_TURN_MAX_IMAGE_DATA_URL_CHARS = 14_000_000;
 const CHAT_ATTACHMENT_ID_MAX_CHARS = 128;
 // Correlation id is command id by design in this model.
@@ -104,6 +108,18 @@ export const ChatAttachment = Schema.Union([ChatImageAttachment]);
 export type ChatAttachment = typeof ChatAttachment.Type;
 const UploadChatAttachment = Schema.Union([UploadChatImageAttachment]);
 export type UploadChatAttachment = typeof UploadChatAttachment.Type;
+
+export const CustomInstructionId = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(CUSTOM_INSTRUCTION_ID_MAX_CHARS),
+);
+export type CustomInstructionId = typeof CustomInstructionId.Type;
+
+export const CustomInstruction = Schema.Struct({
+  id: CustomInstructionId,
+  title: TrimmedNonEmptyString.check(Schema.isMaxLength(CUSTOM_INSTRUCTION_TITLE_MAX_CHARS)),
+  body: TrimmedNonEmptyString.check(Schema.isMaxLength(CUSTOM_INSTRUCTION_BODY_MAX_CHARS)),
+});
+export type CustomInstruction = typeof CustomInstruction.Type;
 
 export const ProjectScriptIcon = Schema.Literals([
   "play",
@@ -366,6 +382,9 @@ export const ThreadTurnStartCommand = Schema.Struct({
   model: Schema.optional(TrimmedNonEmptyString),
   serviceTier: Schema.optional(Schema.NullOr(ProviderServiceTier)),
   modelOptions: Schema.optional(ProviderModelOptions),
+  customInstructions: Schema.optional(
+    Schema.Array(CustomInstruction).check(Schema.isMaxLength(CUSTOM_INSTRUCTION_MAX_COUNT)),
+  ),
   assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
   interactionMode: ProviderInteractionMode.pipe(
@@ -388,6 +407,9 @@ const ClientThreadTurnStartCommand = Schema.Struct({
   model: Schema.optional(TrimmedNonEmptyString),
   serviceTier: Schema.optional(Schema.NullOr(ProviderServiceTier)),
   modelOptions: Schema.optional(ProviderModelOptions),
+  customInstructions: Schema.optional(
+    Schema.Array(CustomInstruction).check(Schema.isMaxLength(CUSTOM_INSTRUCTION_MAX_COUNT)),
+  ),
   assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
@@ -668,6 +690,9 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   model: Schema.optional(TrimmedNonEmptyString),
   serviceTier: Schema.optional(Schema.NullOr(ProviderServiceTier)),
   modelOptions: Schema.optional(ProviderModelOptions),
+  customInstructions: Schema.optional(
+    Schema.Array(CustomInstruction).check(Schema.isMaxLength(CUSTOM_INSTRUCTION_MAX_COUNT)),
+  ),
   assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
   interactionMode: ProviderInteractionMode.pipe(

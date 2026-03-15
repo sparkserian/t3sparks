@@ -11,6 +11,8 @@ import {
 } from "./baseSchemas";
 import {
   ChatAttachment,
+  CustomInstruction,
+  CUSTOM_INSTRUCTION_MAX_COUNT,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProviderApprovalDecision,
@@ -88,6 +90,9 @@ export const ProviderSendTurnInput = Schema.Struct({
   model: Schema.optional(TrimmedNonEmptyStringSchema),
   serviceTier: Schema.optional(Schema.NullOr(ProviderServiceTier)),
   modelOptions: Schema.optional(ProviderModelOptions),
+  customInstructions: Schema.optional(
+    Schema.Array(CustomInstruction).check(Schema.isMaxLength(CUSTOM_INSTRUCTION_MAX_COUNT)),
+  ),
   interactionMode: Schema.optional(ProviderInteractionMode),
 });
 export type ProviderSendTurnInput = typeof ProviderSendTurnInput.Type;

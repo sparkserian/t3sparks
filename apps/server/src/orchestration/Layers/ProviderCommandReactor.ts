@@ -1,6 +1,7 @@
 import {
   type ChatAttachment,
   CommandId,
+  type CustomInstruction,
   EventId,
   type OrchestrationEvent,
   type ProviderModelOptions,
@@ -323,6 +324,7 @@ const make = Effect.gen(function* () {
     readonly threadId: ThreadId;
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
+    readonly customInstructions?: ReadonlyArray<CustomInstruction>;
     readonly provider?: ProviderKind;
     readonly model?: string;
     readonly serviceTier?: ProviderServiceTier | null;
@@ -356,6 +358,9 @@ const make = Effect.gen(function* () {
       threadId: input.threadId,
       ...(normalizedInput ? { input: normalizedInput } : {}),
       ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
+      ...(input.customInstructions !== undefined
+        ? { customInstructions: [...input.customInstructions] }
+        : {}),
       ...(modelForTurn !== undefined ? { model: modelForTurn } : {}),
       ...(input.serviceTier !== undefined ? { serviceTier: input.serviceTier } : {}),
       ...(input.modelOptions !== undefined ? { modelOptions: input.modelOptions } : {}),
@@ -474,6 +479,9 @@ const make = Effect.gen(function* () {
       ...(event.payload.model !== undefined ? { model: event.payload.model } : {}),
       ...(event.payload.serviceTier !== undefined ? { serviceTier: event.payload.serviceTier } : {}),
       ...(event.payload.modelOptions !== undefined ? { modelOptions: event.payload.modelOptions } : {}),
+      ...(event.payload.customInstructions !== undefined
+        ? { customInstructions: event.payload.customInstructions }
+        : {}),
       interactionMode: event.payload.interactionMode,
       createdAt: event.payload.createdAt,
     });

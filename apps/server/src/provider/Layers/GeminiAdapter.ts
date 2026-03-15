@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 
 import {
   EventId,
+  type CustomInstruction,
   type ProviderRuntimeEvent,
   type ProviderSession,
   type ProviderTurnStartResult,
@@ -152,6 +153,27 @@ function rewriteGeminiFailureMessage(model: string | undefined, message: string)
   return message;
 }
 
+function composeGeminiPrompt(input: {
+  readonly prompt: string;
+  readonly customInstructions?: ReadonlyArray<CustomInstruction>;
+}): string {
+  const prompt = input.prompt.trim();
+  if (!input.customInstructions || input.customInstructions.length === 0) {
+    return prompt;
+  }
+
+  const instructionSections = input.customInstructions.map(
+    (instruction, index) => `${index + 1}. ${instruction.title}\n${instruction.body}`,
+  );
+
+  return [
+    "Apply these custom instructions for this turn:",
+    ...instructionSections,
+    "User request:",
+    prompt,
+  ].join("\n\n");
+}
+
 const makeGeminiAdapter = Effect.gen(function* () {
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
   const sessions = new Map<ThreadId, GeminiSessionState>();
@@ -264,7 +286,12 @@ const makeGeminiAdapter = Effect.gen(function* () {
         const turnId = TurnId.makeUnsafe(crypto.randomUUID());
         const assistantItemId = `assistant:${turnId}`;
         const resumeCursor = decodeResumeCursor(state.session.resumeCursor);
-        const prompt = input.input?.trim() ?? "";
+        const prompt = composeGeminiPrompt({
+          prompt: input.input?.trim() ?? "",
+          ...(input.customInstructions !== undefined
+            ? { customInstructions: input.customInstructions }
+            : {}),
+        });
         const selectedModel = input.model ?? state.session.model;
         const args = buildGeminiHeadlessArgs(resolution, {
           prompt,

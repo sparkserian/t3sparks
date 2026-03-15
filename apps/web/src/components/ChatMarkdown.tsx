@@ -27,6 +27,7 @@ import { useTheme } from "../hooks/useTheme";
 import { resolveMarkdownFileLinkTarget } from "../markdown-links";
 import { readNativeApi } from "../nativeApi";
 import { preferredTerminalEditor } from "../terminal-links";
+import { resolveCodeFenceLanguage } from "../codeFenceLanguage";
 
 interface ChatMarkdownProps {
   text: string;
@@ -34,7 +35,6 @@ interface ChatMarkdownProps {
   isStreaming?: boolean;
 }
 
-const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
 const MAX_HIGHLIGHT_CACHE_ENTRIES = 500;
 const MAX_HIGHLIGHT_CACHE_MEMORY_BYTES = 50 * 1024 * 1024;
 const highlightedCodeCache = new LRUCache<string>(
@@ -42,11 +42,6 @@ const highlightedCodeCache = new LRUCache<string>(
   MAX_HIGHLIGHT_CACHE_MEMORY_BYTES,
 );
 const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
-
-function extractFenceLanguage(className: string | undefined): string {
-  const match = className?.match(CODE_FENCE_LANGUAGE_REGEX);
-  return match?.[1] ?? "text";
-}
 
 function nodeToPlainText(node: ReactNode): string {
   if (typeof node === "string" || typeof node === "number") {
@@ -99,7 +94,13 @@ function getHighlighterPromise(language: string): Promise<DiffsHighlighter> {
     themes: [resolveDiffThemeName("dark"), resolveDiffThemeName("light")],
     langs: [language as SupportedLanguages],
     preferredHighlighter: "shiki-js",
-  });
+  }).catch(() =>
+    getSharedHighlighter({
+      themes: [resolveDiffThemeName("dark"), resolveDiffThemeName("light")],
+      langs: ["text" as SupportedLanguages],
+      preferredHighlighter: "shiki-js",
+    }),
+  );
   highlighterPromiseCache.set(language, promise);
   return promise;
 }
@@ -165,7 +166,7 @@ function SuspenseShikiCodeBlock({
   themeName,
   isStreaming,
 }: SuspenseShikiCodeBlockProps) {
-  const language = extractFenceLanguage(className);
+  const language = resolveCodeFenceLanguage(className);
   const cacheKey = createHighlightCacheKey(code, language, themeName);
   const cachedHighlightedHtml = !isStreaming ? highlightedCodeCache.get(cacheKey) : null;
 
@@ -179,10 +180,13 @@ function SuspenseShikiCodeBlock({
   }
 
   const highlighter = use(getHighlighterPromise(language));
-  const highlightedHtml = useMemo(
-    () => highlighter.codeToHtml(code, { lang: language, theme: themeName }),
-    [code, highlighter, language, themeName],
-  );
+  const highlightedHtml = useMemo(() => {
+    try {
+      return highlighter.codeToHtml(code, { lang: language, theme: themeName });
+    } catch {
+      return highlighter.codeToHtml(code, { lang: "text", theme: themeName });
+    }
+  }, [code, highlighter, language, themeName]);
 
   useEffect(() => {
     if (!isStreaming) {

@@ -1362,6 +1362,9 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
               ...(input.interactionMode !== undefined
                 ? { interactionMode: input.interactionMode }
                 : {}),
+              ...(input.customInstructions !== undefined
+                ? { customInstructions: input.customInstructions }
+                : {}),
               ...(codexAttachments.length > 0 ? { attachments: codexAttachments } : {}),
             };
             return manager.sendTurn(managerInput);

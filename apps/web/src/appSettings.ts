@@ -1,7 +1,12 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { Option, Schema } from "effect";
-import { type ProviderKind, type ProviderServiceTier } from "@t3tools/contracts";
+import {
+  CustomInstruction,
+  type ProviderKind,
+  type ProviderServiceTier,
+} from "@t3tools/contracts";
 import { getDefaultModel, getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
+import { normalizeCustomInstructions } from "./customInstructions";
 
 const APP_SETTINGS_STORAGE_KEY = "t3code:app-settings:v1";
 const MAX_CUSTOM_MODEL_COUNT = 32;
@@ -48,6 +53,9 @@ const AppSettingsSchema = Schema.Struct({
     Schema.withConstructorDefault(() => Option.some([])),
   ),
   customGeminiModels: Schema.Array(Schema.String).pipe(
+    Schema.withConstructorDefault(() => Option.some([])),
+  ),
+  customInstructions: Schema.Array(CustomInstruction).pipe(
     Schema.withConstructorDefault(() => Option.some([])),
   ),
   projectHomePath: Schema.String.check(Schema.isMaxLength(MAX_PROJECT_HOME_PATH_LENGTH)).pipe(
@@ -120,6 +128,7 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
     ...settings,
     customCodexModels: normalizeCustomModelSlugs(settings.customCodexModels, "codex"),
     customGeminiModels: normalizeCustomModelSlugs(settings.customGeminiModels, "gemini"),
+    customInstructions: normalizeCustomInstructions(settings.customInstructions),
   };
 }
 
@@ -231,6 +240,11 @@ function parsePersistedSettings(value: string | null): AppSettings {
       Schema.decodeSync(AppSettingsSchema)({
         ...DEFAULT_APP_SETTINGS,
         ...parsed,
+        customInstructions: normalizeCustomInstructions(
+          Array.isArray((parsed as { customInstructions?: unknown }).customInstructions)
+            ? (parsed as { customInstructions: unknown[] }).customInstructions
+            : [],
+        ),
       }),
     );
   } catch {

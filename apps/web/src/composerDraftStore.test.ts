@@ -451,3 +451,38 @@ describe("composerDraftStore runtime and interaction settings", () => {
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
   });
 });
+
+describe("composerDraftStore selected custom instructions", () => {
+  const threadId = ThreadId.makeUnsafe("thread-instructions");
+
+  beforeEach(() => {
+    useComposerDraftStore.setState({
+      draftsByThreadId: {},
+      draftThreadsByThreadId: {},
+      projectDraftThreadIdByProjectId: {},
+    });
+  });
+
+  it("stores deduplicated selected instruction ids per thread", () => {
+    useComposerDraftStore
+      .getState()
+      .setSelectedInstructionIds(threadId, [" review ", "notes", "review"]);
+
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.selectedInstructionIds).toEqual([
+      "review",
+      "notes",
+    ]);
+  });
+
+  it("removes the draft when selected instruction ids are cleared and nothing else remains", () => {
+    const store = useComposerDraftStore.getState();
+    store.setSelectedInstructionIds(threadId, ["review"]);
+
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.selectedInstructionIds).toEqual([
+      "review",
+    ]);
+
+    store.setSelectedInstructionIds(threadId, []);
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
+  });
+});

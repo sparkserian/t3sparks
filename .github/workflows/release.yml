@@ -1,15 +1,20 @@
 name: Release Desktop
 
 on:
-  push:
-    tags:
-      - "v*.*.*"
   workflow_dispatch:
     inputs:
       version:
         description: "Release version (for example 1.2.3 or v1.2.3)"
         required: true
         type: string
+      platform:
+        description: "Desktop target to publish"
+        required: true
+        type: choice
+        default: mac-arm64
+        options:
+          - mac-arm64
+          - win
 
 permissions:
   contents: write
@@ -23,6 +28,7 @@ jobs:
       version: ${{ steps.release_meta.outputs.version }}
       tag: ${{ steps.release_meta.outputs.tag }}
       ref: ${{ github.sha }}
+      build_matrix: ${{ steps.release_meta.outputs.build_matrix }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,11 +37,8 @@ jobs:
         name: Resolve release version
         shell: bash
         run: |
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            raw="${{ github.event.inputs.version }}"
-          else
-            raw="${GITHUB_REF_NAME}"
-          fi
+          raw="${{ github.event.inputs.version }}"
+          platform="${{ github.event.inputs.platform }}"
 
           version="${raw#v}"
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
@@ -43,8 +46,22 @@ jobs:
             exit 1
           fi
 
+          case "$platform" in
+            mac-arm64)
+              matrix='[{"label":"macOS arm64","runner":"macos-14","platform":"mac","target":"dmg","arch":"arm64"}]'
+              ;;
+            win)
+              matrix='[{"label":"Windows x64","runner":"windows-2022","platform":"win","target":"nsis","arch":"x64"}]'
+              ;;
+            *)
+              echo "Invalid release platform: $platform" >&2
+              exit 1
+              ;;
+          esac
+
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "build_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -65,9 +82,6 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Test
-        run: bun run test
-
   build:
     name: Build ${{ matrix.label }}
     needs: preflight
@@ -75,27 +89,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - label: macOS arm64
-            runner: macos-14
-            platform: mac
-            target: dmg
-            arch: arm64
-          - label: macOS x64
-            runner: macos-15-intel
-            platform: mac
-            target: dmg
-            arch: x64
-          - label: Linux x64
-            runner: ubuntu-24.04
-            platform: linux
-            target: AppImage
-            arch: x64
-          - label: Windows x64
-            runner: windows-2022
-            platform: win
-            target: nsis
-            arch: x64
+        include: ${{ fromJson(needs.preflight.outputs.build_matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -189,7 +183,6 @@ jobs:
           for pattern in \
             "release/*.dmg" \
             "release/*.zip" \
-            "release/*.AppImage" \
             "release/*.exe" \
             "release/*.blockmap" \
             "release/latest*.yml"; do
@@ -198,12 +191,6 @@ jobs:
             done
           done
 
-          if [[ "${{ matrix.platform }}" == "mac" && "${{ matrix.arch }}" != "arm64" ]]; then
-            if [[ -f release-publish/latest-mac.yml ]]; then
-              mv release-publish/latest-mac.yml "release-publish/latest-mac-${{ matrix.arch }}.yml"
-            fi
-          fi
-
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -211,39 +198,9 @@ jobs:
           path: release-publish/*
           if-no-files-found: error
 
-  publish_cli:
-    name: Publish CLI to npm
-    needs: [preflight, build]
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.preflight.outputs.ref }}
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: package.json
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: package.json
-          registry-url: https://registry.npmjs.org
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Build CLI package
-        run: bun run build --filter=@t3tools/web --filter=t3
-
-      - name: Publish CLI package
-        run: node apps/server/scripts/cli.ts publish --tag latest --app-version "${{ needs.preflight.outputs.version }}" --verbose
-
   release:
     name: Publish GitHub Release
-    needs: [preflight, build, publish_cli]
+    needs: [preflight, build]
     runs-on: ubuntu-24.04
     steps:
       - name: Download all desktop artifacts
@@ -258,93 +215,14 @@ jobs:
         with:
           tag_name: ${{ needs.preflight.outputs.tag }}
           target_commitish: ${{ needs.preflight.outputs.ref }}
-          name: T3 Code v${{ needs.preflight.outputs.version }}
+          name: T3 Sparks v${{ needs.preflight.outputs.version }}
           generate_release_notes: true
           make_latest: true
+          overwrite_files: true
           files: |
             release-assets/*.dmg
             release-assets/*.zip
-            release-assets/*.AppImage
             release-assets/*.exe
             release-assets/*.blockmap
             release-assets/latest*.yml
           fail_on_unmatched_files: true
-
-  finalize:
-    name: Finalize release
-    needs: [preflight, release]
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: package.json
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: package.json
-
-      - id: update_versions
-        name: Update version strings
-        env:
-          RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
-        run: |
-          node --input-type=module -e '
-            import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
-
-            const files = [
-              "apps/server/package.json",
-              "apps/desktop/package.json",
-              "apps/web/package.json",
-              "packages/contracts/package.json",
-            ];
-
-            let changed = false;
-            for (const file of files) {
-              const packageJson = JSON.parse(readFileSync(file, "utf8"));
-              if (packageJson.version !== process.env.RELEASE_VERSION) {
-                packageJson.version = process.env.RELEASE_VERSION;
-                writeFileSync(file, `${JSON.stringify(packageJson, null, 2)}\n`);
-                changed = true;
-              }
-            }
-
-            if (!changed) {
-              console.log("All package.json versions already match release version.");
-            }
-
-            appendFileSync(process.env.GITHUB_OUTPUT, `changed=${changed}\n`);
-          '
-
-      - name: Format package.json files
-        if: steps.update_versions.outputs.changed == 'true'
-        run: bunx oxfmt apps/server/package.json apps/desktop/package.json apps/web/package.json packages/contracts/package.json
-
-      - name: Refresh lockfile
-        if: steps.update_versions.outputs.changed == 'true'
-        run: bun install
-
-      - name: Commit and push version bump
-        if: steps.update_versions.outputs.changed == 'true'
-        shell: bash
-        env:
-          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
-        run: |
-          if git diff --quiet -- apps/server/package.json apps/desktop/package.json apps/web/package.json packages/contracts/package.json bun.lock; then
-            echo "No version changes to commit."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add apps/server/package.json apps/desktop/package.json apps/web/package.json packages/contracts/package.json bun.lock
-          git commit -m "chore(release): prepare $RELEASE_TAG"
-          git push origin HEAD:main

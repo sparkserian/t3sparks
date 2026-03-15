@@ -14,6 +14,7 @@ import {
   DEFAULT_RUNTIME_MODE,
   type ChatImageAttachment,
 } from "./types";
+import { normalizeSelectedCustomInstructionIds } from "./customInstructions";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -43,6 +44,7 @@ interface PersistedComposerThreadDraftState {
   effort?: CodexReasoningEffort | null;
   codexFastMode?: boolean | null;
   serviceTier?: string | null;
+  selectedInstructionIds?: string[];
 }
 
 interface PersistedDraftThreadState {
@@ -72,6 +74,7 @@ interface ComposerThreadDraftState {
   interactionMode: ProviderInteractionMode | null;
   effort: CodexReasoningEffort | null;
   codexFastMode: boolean;
+  selectedInstructionIds: string[];
 }
 
 export interface DraftThreadState {
@@ -131,6 +134,7 @@ interface ComposerDraftStoreState {
   ) => void;
   setEffort: (threadId: ThreadId, effort: CodexReasoningEffort | null | undefined) => void;
   setCodexFastMode: (threadId: ThreadId, enabled: boolean | null | undefined) => void;
+  setSelectedInstructionIds: (threadId: ThreadId, instructionIds: ReadonlyArray<string>) => void;
   addImage: (threadId: ThreadId, image: ComposerImageAttachment) => void;
   addImages: (threadId: ThreadId, images: ComposerImageAttachment[]) => void;
   removeImage: (threadId: ThreadId, imageId: string) => void;
@@ -152,9 +156,11 @@ const EMPTY_PERSISTED_DRAFT_STORE_STATE: PersistedComposerDraftStoreState = {
 const EMPTY_IMAGES: ComposerImageAttachment[] = [];
 const EMPTY_IDS: string[] = [];
 const EMPTY_PERSISTED_ATTACHMENTS: PersistedComposerImageAttachment[] = [];
+const EMPTY_SELECTED_INSTRUCTION_IDS: string[] = [];
 Object.freeze(EMPTY_IMAGES);
 Object.freeze(EMPTY_IDS);
 Object.freeze(EMPTY_PERSISTED_ATTACHMENTS);
+Object.freeze(EMPTY_SELECTED_INSTRUCTION_IDS);
 const EMPTY_THREAD_DRAFT = Object.freeze({
   prompt: "",
   images: EMPTY_IMAGES,
@@ -166,6 +172,7 @@ const EMPTY_THREAD_DRAFT = Object.freeze({
   interactionMode: null,
   effort: null,
   codexFastMode: false,
+  selectedInstructionIds: EMPTY_SELECTED_INSTRUCTION_IDS,
 }) as ComposerThreadDraftState;
 
 const REASONING_EFFORT_VALUES = new Set<CodexReasoningEffort>(
@@ -184,6 +191,7 @@ function createEmptyThreadDraft(): ComposerThreadDraftState {
     interactionMode: null,
     effort: null,
     codexFastMode: false,
+    selectedInstructionIds: [],
   };
 }
 
@@ -203,7 +211,8 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.runtimeMode === null &&
     draft.interactionMode === null &&
     draft.effort === null &&
-    draft.codexFastMode === false
+    draft.codexFastMode === false &&
+    draft.selectedInstructionIds.length === 0
   );
 }
 
@@ -389,6 +398,9 @@ function normalizePersistedComposerDraftState(value: unknown): PersistedComposer
     const codexFastMode =
       draftCandidate.codexFastMode === true ||
       (typeof draftCandidate.serviceTier === "string" && draftCandidate.serviceTier === "fast");
+    const selectedInstructionIds = Array.isArray(draftCandidate.selectedInstructionIds)
+      ? normalizeSelectedCustomInstructionIds(draftCandidate.selectedInstructionIds)
+      : [];
     if (
       prompt.length === 0 &&
       attachments.length === 0 &&
@@ -397,7 +409,8 @@ function normalizePersistedComposerDraftState(value: unknown): PersistedComposer
       !runtimeMode &&
       !interactionMode &&
       !effort &&
-      !codexFastMode
+      !codexFastMode &&
+      selectedInstructionIds.length === 0
     ) {
       continue;
     }
@@ -410,6 +423,7 @@ function normalizePersistedComposerDraftState(value: unknown): PersistedComposer
       ...(interactionMode ? { interactionMode } : {}),
       ...(effort ? { effort } : {}),
       ...(codexFastMode ? { codexFastMode } : {}),
+      ...(selectedInstructionIds.length > 0 ? { selectedInstructionIds } : {}),
     };
   }
   return {
@@ -517,6 +531,9 @@ function toHydratedThreadDraft(
     interactionMode: persistedDraft.interactionMode ?? null,
     effort: persistedDraft.effort ?? null,
     codexFastMode: persistedDraft.codexFastMode === true,
+    selectedInstructionIds: normalizeSelectedCustomInstructionIds(
+      persistedDraft.selectedInstructionIds ?? [],
+    ),
   };
 }
 
@@ -947,6 +964,36 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           return { draftsByThreadId: nextDraftsByThreadId };
         });
       },
+      setSelectedInstructionIds: (threadId, instructionIds) => {
+        if (threadId.length === 0) {
+          return;
+        }
+        const nextSelectedInstructionIds = normalizeSelectedCustomInstructionIds(instructionIds);
+        set((state) => {
+          const existing = state.draftsByThreadId[threadId];
+          if (!existing && nextSelectedInstructionIds.length === 0) {
+            return state;
+          }
+          const base = existing ?? createEmptyThreadDraft();
+          const isUnchanged =
+            base.selectedInstructionIds.length === nextSelectedInstructionIds.length &&
+            base.selectedInstructionIds.every((id, index) => id === nextSelectedInstructionIds[index]);
+          if (isUnchanged) {
+            return state;
+          }
+          const nextDraft: ComposerThreadDraftState = {
+            ...base,
+            selectedInstructionIds: nextSelectedInstructionIds,
+          };
+          const nextDraftsByThreadId = { ...state.draftsByThreadId };
+          if (shouldRemoveDraft(nextDraft)) {
+            delete nextDraftsByThreadId[threadId];
+          } else {
+            nextDraftsByThreadId[threadId] = nextDraft;
+          }
+          return { draftsByThreadId: nextDraftsByThreadId };
+        });
+      },
       addImage: (threadId, image) => {
         if (threadId.length === 0) {
           return;
@@ -1184,7 +1231,8 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             draft.runtimeMode === null &&
             draft.interactionMode === null &&
             draft.effort === null &&
-            draft.codexFastMode === false
+            draft.codexFastMode === false &&
+            draft.selectedInstructionIds.length === 0
           ) {
             continue;
           }
@@ -1209,6 +1257,9 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           }
           if (draft.codexFastMode) {
             persistedDraft.codexFastMode = true;
+          }
+          if (draft.selectedInstructionIds.length > 0) {
+            persistedDraft.selectedInstructionIds = draft.selectedInstructionIds;
           }
           persistedDraftsByThreadId[threadId as ThreadId] = persistedDraft;
         }
