@@ -71,6 +71,7 @@ interface BuildCliInput {
   readonly skipBuild: Option.Option<boolean>;
   readonly keepStage: Option.Option<boolean>;
   readonly signed: Option.Option<boolean>;
+  readonly publish: Option.Option<boolean>;
   readonly verbose: Option.Option<boolean>;
 }
 
@@ -117,6 +118,20 @@ function resolveGitCommitHash(repoRoot: string): string {
   return hash.toLowerCase();
 }
 
+function resolveGitHubRepository(): string {
+  const owner = process.env.GH_RELEASE_OWNER?.trim() || "";
+  const repo = process.env.GH_RELEASE_REPO?.trim() || "";
+  if (owner && repo) {
+    return `${owner}/${repo}`;
+  }
+
+  return (
+    process.env.T3SPARKS_DESKTOP_UPDATE_REPOSITORY?.trim() ||
+    process.env.GITHUB_REPOSITORY?.trim() ||
+    ""
+  );
+}
+
 function resolvePythonForNodeGyp(): string | undefined {
   const configured = process.env.npm_config_python ?? process.env.PYTHON;
   if (configured && existsSync(configured)) {
@@ -159,6 +174,7 @@ interface ResolvedBuildOptions {
   readonly skipBuild: boolean;
   readonly keepStage: boolean;
   readonly signed: boolean;
+  readonly publish: boolean;
   readonly verbose: boolean;
 }
 
@@ -201,6 +217,7 @@ const BuildEnvConfig = Config.all({
   skipBuild: Config.boolean("T3SPARKS_DESKTOP_SKIP_BUILD").pipe(Config.withDefault(false)),
   keepStage: Config.boolean("T3SPARKS_DESKTOP_KEEP_STAGE").pipe(Config.withDefault(false)),
   signed: Config.boolean("T3SPARKS_DESKTOP_SIGNED").pipe(Config.withDefault(false)),
+  publish: Config.boolean("T3SPARKS_DESKTOP_PUBLISH").pipe(Config.withDefault(false)),
   verbose: Config.boolean("T3SPARKS_DESKTOP_VERBOSE").pipe(Config.withDefault(false)),
 });
 
@@ -234,6 +251,7 @@ const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (input: B
   const skipBuild = resolveBooleanFlag(input.skipBuild, env.skipBuild);
   const keepStage = resolveBooleanFlag(input.keepStage, env.keepStage);
   const signed = resolveBooleanFlag(input.signed, env.signed);
+  const publish = resolveBooleanFlag(input.publish, env.publish);
   const verbose = resolveBooleanFlag(input.verbose, env.verbose);
 
   return {
@@ -245,6 +263,7 @@ const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (input: B
     skipBuild,
     keepStage,
     signed,
+    publish,
     verbose,
   } satisfies ResolvedBuildOptions;
 });
@@ -423,10 +442,7 @@ function resolveGitHubPublishConfig():
       readonly releaseType: "release";
     }
   | undefined {
-  const rawRepo =
-    process.env.T3SPARKS_DESKTOP_UPDATE_REPOSITORY?.trim() ||
-    process.env.GITHUB_REPOSITORY?.trim() ||
-    "";
+  const rawRepo = resolveGitHubRepository();
   if (!rawRepo) return undefined;
 
   const [owner, repo, ...rest] = rawRepo.split("/");
@@ -673,14 +689,14 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   }
 
   yield* Effect.log(
-    `[desktop-artifact] Building ${options.platform}/${options.target} (arch=${options.arch}, version=${appVersion})...`,
+    `[desktop-artifact] Building ${options.platform}/${options.target} (arch=${options.arch}, version=${appVersion}, publish=${options.publish ? "always" : "never"})...`,
   );
   yield* runCommand(
     ChildProcess.make({
       cwd: stageAppDir,
       env: buildEnv,
       ...commandOutputOptions(options.verbose),
-    })`bunx electron-builder ${platformConfig.cliFlag} --${options.arch} --publish never`,
+    })`bunx electron-builder ${platformConfig.cliFlag} --${options.arch} --publish ${options.publish ? "always" : "never"}`,
   );
 
   const stageDistDir = path.join(stageAppDir, "dist");
@@ -751,6 +767,12 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   signed: Flag.boolean("signed").pipe(
     Flag.withDescription(
       "Enable signing/notarization discovery; Windows uses Azure Trusted Signing (env: T3SPARKS_DESKTOP_SIGNED).",
+    ),
+    Flag.optional,
+  ),
+  publish: Flag.boolean("publish").pipe(
+    Flag.withDescription(
+      "Upload artifacts directly to GitHub Releases with electron-builder (env: T3SPARKS_DESKTOP_PUBLISH).",
     ),
     Flag.optional,
   ),

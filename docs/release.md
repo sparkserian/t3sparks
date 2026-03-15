@@ -1,42 +1,33 @@
 # Release Checklist
 
-This repo now uses a minimal desktop release flow:
+This repo now supports the same local release flow you described:
 
-- macOS `arm64` DMG
-- Windows `x64` installer
-- one GitHub Release per version tag
+- `npm version patch`
+- `git push origin main --follow-tags`
+- `npm run publish:mac-arm64`
+- `npm run publish:win`
+- optional: `npm run publish:linux`
 
-It does not publish the CLI to npm.
-It does not build Linux artifacts.
-It does not auto-commit version bumps back to `main`.
-
-## What the workflow does
-
-- Trigger: `workflow_dispatch`
-- Runs:
-  - lint
-  - typecheck
-- Builds:
-  - macOS `arm64` DMG
-  - Windows `x64` NSIS installer
-- Publishes one GitHub Release with the produced files
-- Includes updater metadata such as `*.blockmap`, `latest.yml`, and the macOS `.zip`
-
-Workflow file:
-
-- [release.yml](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3sparks/.github/workflows/release.yml)
+Each `publish:*` script builds locally with `electron-builder` and uploads directly to the same GitHub Release for the current version.
 
 ## GitHub setup
 
-Set these in your local runtime environment when you want desktop update checks to target your repo:
+Put these in [`.env.local`](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3code/.env.local):
+
+```env
+GH_RELEASE_OWNER=owner
+GH_RELEASE_REPO=repo
+GH_TOKEN=your_token
+```
+
+Optional compatibility vars are also supported:
 
 ```env
 T3SPARKS_DESKTOP_UPDATE_REPOSITORY=owner/repo
 T3SPARKS_DESKTOP_UPDATE_GITHUB_TOKEN=your_token
-GH_TOKEN=your_token
 ```
 
-Your local [`.env.local`](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3sparks/.env.local) is ignored by git.
+Your local [`.env.local`](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3code/.env.local) is ignored by git.
 
 ## Release steps
 
@@ -44,8 +35,10 @@ Use these commands:
 
 ```bash
 npm version patch
+git push origin main --follow-tags
 npm run publish:mac-arm64
 npm run publish:win
+npm run publish:linux
 ```
 
 What each one does:
@@ -53,46 +46,46 @@ What each one does:
 - `npm version patch`
   - bumps the root version
   - syncs:
-    - [apps/desktop/package.json](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3sparks/apps/desktop/package.json)
-    - [apps/server/package.json](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3sparks/apps/server/package.json)
-    - [apps/web/package.json](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3sparks/apps/web/package.json)
-    - [packages/contracts/package.json](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3sparks/packages/contracts/package.json)
+    - [apps/desktop/package.json](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3code/apps/desktop/package.json)
+    - [apps/server/package.json](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3code/apps/server/package.json)
+    - [apps/web/package.json](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3code/apps/web/package.json)
+    - [packages/contracts/package.json](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3code/packages/contracts/package.json)
   - creates the release commit and local git tag
 
+- `git push origin main --follow-tags`
+  - pushes the release commit
+  - pushes the matching version tag like `v0.0.9`
+
 - `npm run publish:mac-arm64`
-  - pushes `main`
-  - pushes the version tag
-  - starts the GitHub Actions release workflow for macOS ARM64
-  - waits for it to finish
-  - uploads the macOS release assets to GitHub Releases
+  - builds the desktop app locally
+  - packages macOS `dmg` and `zip`
+  - uploads them and the updater metadata to GitHub Releases
 
 - `npm run publish:win`
-  - starts the same workflow for Windows
-  - waits for it to finish
-  - uploads the Windows release assets to the same GitHub Release
+  - builds the desktop app locally
+  - packages Windows `nsis`
+  - uploads it and the updater metadata to the same GitHub Release
+
+- `npm run publish:linux`
+  - builds the desktop app locally
+  - packages Linux `AppImage`
+  - uploads it to the same GitHub Release
 
 ## Notes
 
 - Run `npm version patch` from a clean git working tree.
-- `publish:mac-arm64` and `publish:win` require:
-  - `gh` installed
-  - GitHub CLI authenticated, or `GH_TOKEN` available from [`.env.local`](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3sparks/.env.local)
-- The scripts use [release.yml](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3sparks/.github/workflows/release.yml) under the hood.
-
-## Optional manual trigger
-
-You can still run the workflow from the GitHub Actions UI and choose:
-
-```text
-version: 0.0.6
-platform: mac-arm64 or win
-```
+- Do not bump the version again between Mac and Windows.
+- macOS auto-update needs both the `dmg` and the `zip`.
+- Windows auto-update uses the `nsis` target.
+- `publish:*` requires `GH_TOKEN` with release upload access.
+- Publish macOS from a Mac for the most reliable result.
+- Publish Windows from Windows or CI for the most reliable result.
 
 ## Optional signing
 
-If you later want signed builds, the workflow still supports:
+If you later want signed builds, the desktop builder still supports:
 
 - macOS signing and notarization through Apple secrets
 - Windows signing through Azure Trusted Signing secrets
 
-If those secrets are missing, the workflow builds unsigned artifacts instead.
+If those secrets are missing, the local publish builds unsigned artifacts instead.

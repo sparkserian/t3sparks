@@ -47,8 +47,9 @@
     "dist:desktop:dmg:x64": "bun run scripts/build-desktop-artifact.ts --platform mac --target dmg --arch x64",
     "dist:desktop:linux": "bun run scripts/build-desktop-artifact.ts --platform linux --target AppImage --arch x64",
     "dist:desktop:win": "bun run scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64",
-    "publish:mac-arm64": "node scripts/publish-release.mjs mac-arm64",
-    "publish:win": "node scripts/publish-release.mjs win",
+    "publish:mac-arm64": "bun run scripts/build-desktop-artifact.ts --platform mac --target dmg --arch arm64 --publish --verbose",
+    "publish:win": "bun run scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64 --publish --verbose",
+    "publish:linux": "bun run scripts/build-desktop-artifact.ts --platform linux --target AppImage --arch x64 --publish --verbose",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .turbo apps/*/.turbo packages/*/.turbo",
     "sync:vscode-icons": "node scripts/sync-vscode-icons.mjs"
   },

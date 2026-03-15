@@ -3,6 +3,10 @@ import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const VALID_PLATFORMS = new Set(["mac-arm64", "win"]);
+const EXPECTED_ASSET_PATTERNS = {
+  "mac-arm64": [/\.dmg$/u, /\.zip$/u, /\.blockmap$/u, /^latest-mac\.yml$/u],
+  win: [/\.exe$/u, /\.blockmap$/u, /^latest\.yml$/u],
+};
 
 function fail(message) {
   console.error(`[release] ${message}`);
@@ -113,6 +117,50 @@ function findTriggeredRun(repo, workflowFile, triggeredAfterUnixMs) {
   fail("Could not find the triggered GitHub Actions run.");
 }
 
+function getRelease(repo, tag) {
+  const output = runCapture("gh", [
+    "release",
+    "view",
+    tag,
+    "--repo",
+    repo,
+    "--json",
+    "url,assets",
+  ]);
+  return JSON.parse(output);
+}
+
+function verifyReleaseAssets(repo, tag, platform) {
+  const release = getRelease(repo, tag);
+  const assets = Array.isArray(release?.assets) ? release.assets : [];
+  const assetNames = assets
+    .map((asset) => (typeof asset?.name === "string" ? asset.name : ""))
+    .filter(Boolean);
+  const expectedPatterns = EXPECTED_ASSET_PATTERNS[platform];
+
+  const missingPatterns = expectedPatterns.filter(
+    (pattern) => !assetNames.some((assetName) => pattern.test(assetName)),
+  );
+
+  if (missingPatterns.length > 0) {
+    fail(
+      `GitHub Release ${tag} is missing expected ${platform} assets. Found: ${
+        assetNames.length > 0 ? assetNames.join(", ") : "none"
+      }`,
+    );
+  }
+
+  const matchedAssetNames = assetNames.filter((assetName) =>
+    expectedPatterns.some((pattern) => pattern.test(assetName)),
+  );
+
+  console.log(`[release] Uploaded assets for ${platform}:`);
+  for (const assetName of matchedAssetNames) {
+    console.log(`[release]   - ${assetName}`);
+  }
+  console.log(`[release] Release page: ${release.url}`);
+}
+
 const repoRoot = resolve(import.meta.dirname, "..");
 const platform = process.argv[2];
 
@@ -162,6 +210,8 @@ run("gh", [
 
 const runInfo = findTriggeredRun(repository, "release.yml", triggerStartedAt);
 console.log(`[release] Watching workflow run ${runInfo.databaseId}...`);
+console.log(`[release] Workflow URL: ${runInfo.url}`);
 run("gh", ["run", "watch", String(runInfo.databaseId), "--repo", repository, "--exit-status"]);
 
-console.log(`[release] Release flow completed: ${runInfo.url}`);
+verifyReleaseAssets(repository, tag, platform);
+console.log(`[release] Release flow completed.`);
