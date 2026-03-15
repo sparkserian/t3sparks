@@ -1,4 +1,4 @@
-import type { OrchestrationReadModel, ProviderRuntimeEvent } from "@t3tools/contracts";
+import type { OrchestrationReadModel, ProviderRuntimeEvent } from "@t3sparks/contracts";
 import {
   ApprovalRequestId,
   CommandId,
@@ -9,7 +9,7 @@ import {
   ProviderItemId,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@t3sparks/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 

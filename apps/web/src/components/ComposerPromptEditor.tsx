@@ -784,7 +784,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     const initialValueRef = useRef(value);
     const initialConfig = useMemo<InitialConfigType>(
       () => ({
-        namespace: "t3tools-composer-editor",
+        namespace: "t3sparks-composer-editor",
         editable: true,
         nodes: [ComposerMentionNode],
         editorState: () => {

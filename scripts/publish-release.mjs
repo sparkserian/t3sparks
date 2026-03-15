@@ -70,25 +70,47 @@ function loadDotEnvLocal() {
   }
 }
 
-function findLatestRunId(repo, workflowFile) {
-  const output = runCapture("gh", [
-    "run",
-    "list",
-    "--repo",
-    repo,
-    "--workflow",
-    workflowFile,
-    "--limit",
-    "1",
-    "--json",
-    "databaseId,url",
-  ]);
-  const runs = JSON.parse(output);
-  const run = Array.isArray(runs) ? runs[0] : undefined;
-  if (!run?.databaseId) {
-    fail("Could not find the triggered GitHub Actions run.");
+function sleep(milliseconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
+function findTriggeredRun(repo, workflowFile, triggeredAfterUnixMs) {
+  const deadline = Date.now() + 60_000;
+
+  while (Date.now() < deadline) {
+    const output = runCapture("gh", [
+      "run",
+      "list",
+      "--repo",
+      repo,
+      "--workflow",
+      workflowFile,
+      "--limit",
+      "20",
+      "--json",
+      "databaseId,url,createdAt,event,headBranch",
+    ]);
+    const runs = JSON.parse(output);
+    if (Array.isArray(runs)) {
+      const run = runs.find((candidate) => {
+        if (!candidate?.databaseId || typeof candidate.createdAt !== "string") {
+          return false;
+        }
+        if (candidate.event !== "workflow_dispatch" || candidate.headBranch !== "main") {
+          return false;
+        }
+        const createdAt = Date.parse(candidate.createdAt);
+        return Number.isFinite(createdAt) && createdAt >= triggeredAfterUnixMs;
+      });
+      if (run) {
+        return run;
+      }
+    }
+
+    sleep(2_000);
   }
-  return run;
+
+  fail("Could not find the triggered GitHub Actions run.");
 }
 
 const repoRoot = resolve(import.meta.dirname, "..");
@@ -108,12 +130,12 @@ if (typeof version !== "string" || version.length === 0) {
 
 const tag = `v${version}`;
 const repository =
-  process.env.T3CODE_DESKTOP_UPDATE_REPOSITORY?.trim() ||
+  process.env.T3SPARKS_DESKTOP_UPDATE_REPOSITORY?.trim() ||
   process.env.GITHUB_REPOSITORY?.trim() ||
   "";
 
 if (!repository) {
-  fail("Set T3CODE_DESKTOP_UPDATE_REPOSITORY in .env.local before publishing.");
+  fail("Set T3SPARKS_DESKTOP_UPDATE_REPOSITORY in .env.local before publishing.");
 }
 
 runCapture("git", ["rev-parse", "--verify", tag]);
@@ -123,6 +145,7 @@ run("git", ["push", "origin", "HEAD:main"]);
 run("git", ["push", "origin", `refs/tags/${tag}`]);
 
 console.log(`[release] Triggering ${platform} release workflow for ${tag}...`);
+const triggerStartedAt = Date.now() - 2_000;
 run("gh", [
   "workflow",
   "run",
@@ -137,7 +160,7 @@ run("gh", [
   `platform=${platform}`,
 ]);
 
-const runInfo = findLatestRunId(repository, "release.yml");
+const runInfo = findTriggeredRun(repository, "release.yml", triggerStartedAt);
 console.log(`[release] Watching workflow run ${runInfo.databaseId}...`);
 run("gh", ["run", "watch", String(runInfo.databaseId), "--repo", repository, "--exit-status"]);
 

@@ -6,7 +6,7 @@ import {
   TurnId,
   type OrchestrationEvent,
   type ProviderRuntimeEvent,
-} from "@t3tools/contracts";
+} from "@t3sparks/contracts";
 import { Cause, Effect, Layer, Option, Queue, Stream } from "effect";
 
 import { parseTurnDiffFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";

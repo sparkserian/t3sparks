@@ -191,25 +191,6 @@ jobs:
             done
           done
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
-          path: release-publish/*
-          if-no-files-found: error
-
-  release:
-    name: Publish GitHub Release
-    needs: [preflight, build]
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Download all desktop artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: desktop-*
-          merge-multiple: true
-          path: release-assets
-
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
@@ -220,9 +201,9 @@ jobs:
           make_latest: true
           overwrite_files: true
           files: |
-            release-assets/*.dmg
-            release-assets/*.zip
-            release-assets/*.exe
-            release-assets/*.blockmap
-            release-assets/latest*.yml
+            release-publish/*.dmg
+            release-publish/*.zip
+            release-publish/*.exe
+            release-publish/*.blockmap
+            release-publish/latest*.yml
           fail_on_unmatched_files: true

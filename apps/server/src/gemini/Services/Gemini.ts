@@ -1,4 +1,4 @@
-import type { GeminiStatusResult } from "@t3tools/contracts";
+import type { GeminiStatusResult } from "@t3sparks/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -10,4 +10,4 @@ export interface GeminiShape {
   }) => Effect.Effect<GeminiStatusResult, GeminiError>;
 }
 
-export class Gemini extends ServiceMap.Service<Gemini, GeminiShape>()("t3/gemini/Services/Gemini") {}
+export class Gemini extends ServiceMap.Service<Gemini, GeminiShape>()("t3sparks/gemini/Services/Gemini") {}

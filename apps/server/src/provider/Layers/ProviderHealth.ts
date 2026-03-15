@@ -12,7 +12,7 @@ import type {
   ServerProviderAuthStatus,
   ServerProviderStatus,
   ServerProviderStatusState,
-} from "@t3tools/contracts";
+} from "@t3sparks/contracts";
 import { Effect, Layer, Option, Result, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 

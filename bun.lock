@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@t3tools/monorepo",
+      "name": "@t3sparks/monorepo",
       "devDependencies": {
         "@types/node": "catalog:",
         "oxfmt": "^0.35.0",
@@ -13,16 +13,16 @@
       },
     },
     "apps/desktop": {
-      "name": "@t3tools/desktop",
-      "version": "0.0.3",
+      "name": "@t3sparks/desktop",
+      "version": "0.0.6",
       "dependencies": {
         "effect": "catalog:",
         "electron": "40.6.0",
         "electron-updater": "^6.6.2",
       },
       "devDependencies": {
-        "@t3tools/contracts": "workspace:*",
-        "@t3tools/shared": "workspace:*",
+        "@t3sparks/contracts": "workspace:*",
+        "@t3sparks/shared": "workspace:*",
         "@types/node": "catalog:",
         "tsdown": "catalog:",
         "typescript": "catalog:",
@@ -31,7 +31,7 @@
       },
     },
     "apps/marketing": {
-      "name": "@t3tools/marketing",
+      "name": "@t3sparks/marketing",
       "version": "0.0.0",
       "dependencies": {
         "astro": "^5.7.13",
@@ -42,10 +42,10 @@
       },
     },
     "apps/server": {
-      "name": "t3",
-      "version": "0.0.3",
+      "name": "t3sparks",
+      "version": "0.0.6",
       "bin": {
-        "t3": "./dist/index.mjs",
+        "t3sparks": "./dist/index.mjs",
       },
       "dependencies": {
         "@effect/platform-node": "catalog:",
@@ -59,9 +59,9 @@
       "devDependencies": {
         "@effect/language-service": "catalog:",
         "@effect/vitest": "catalog:",
-        "@t3tools/contracts": "workspace:*",
-        "@t3tools/shared": "workspace:*",
-        "@t3tools/web": "workspace:*",
+        "@t3sparks/contracts": "workspace:*",
+        "@t3sparks/shared": "workspace:*",
+        "@t3sparks/web": "workspace:*",
         "@types/bun": "catalog:",
         "@types/node": "catalog:",
         "@types/ws": "^8.5.13",
@@ -71,14 +71,14 @@
       },
     },
     "apps/web": {
-      "name": "@t3tools/web",
-      "version": "0.0.3",
+      "name": "@t3sparks/web",
+      "version": "0.0.6",
       "dependencies": {
         "@base-ui/react": "^1.2.0",
         "@lexical/react": "^0.41.0",
         "@pierre/diffs": "^1.1.0-beta.16",
-        "@t3tools/contracts": "workspace:*",
-        "@t3tools/shared": "workspace:*",
+        "@t3sparks/contracts": "workspace:*",
+        "@t3sparks/shared": "workspace:*",
         "@tanstack/react-pacer": "^0.19.4",
         "@tanstack/react-query": "^5.90.0",
         "@tanstack/react-router": "^1.160.2",
@@ -115,8 +115,8 @@
       },
     },
     "packages/contracts": {
-      "name": "@t3tools/contracts",
-      "version": "0.0.3",
+      "name": "@t3sparks/contracts",
+      "version": "0.0.6",
       "dependencies": {
         "effect": "catalog:",
       },
@@ -129,10 +129,10 @@
       },
     },
     "packages/shared": {
-      "name": "@t3tools/shared",
+      "name": "@t3sparks/shared",
       "version": "0.0.0-alpha.1",
       "dependencies": {
-        "@t3tools/contracts": "workspace:*",
+        "@t3sparks/contracts": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -144,11 +144,11 @@
       },
     },
     "scripts": {
-      "name": "@t3tools/scripts",
+      "name": "@t3sparks/scripts",
       "dependencies": {
         "@effect/platform-node": "catalog:",
-        "@t3tools/contracts": "workspace:*",
-        "@t3tools/shared": "workspace:*",
+        "@t3sparks/contracts": "workspace:*",
+        "@t3sparks/shared": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -681,17 +681,17 @@
 
     "@szmarczak/http-timer": ["@szmarczak/http-timer@4.0.6", "", { "dependencies": { "defer-to-connect": "^2.0.0" } }, "sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w=="],
 
-    "@t3tools/contracts": ["@t3tools/contracts@workspace:packages/contracts"],
+    "@t3sparks/contracts": ["@t3sparks/contracts@workspace:packages/contracts"],
 
-    "@t3tools/desktop": ["@t3tools/desktop@workspace:apps/desktop"],
+    "@t3sparks/desktop": ["@t3sparks/desktop@workspace:apps/desktop"],
 
-    "@t3tools/marketing": ["@t3tools/marketing@workspace:apps/marketing"],
+    "@t3sparks/marketing": ["@t3sparks/marketing@workspace:apps/marketing"],
 
-    "@t3tools/scripts": ["@t3tools/scripts@workspace:scripts"],
+    "@t3sparks/scripts": ["@t3sparks/scripts@workspace:scripts"],
 
-    "@t3tools/shared": ["@t3tools/shared@workspace:packages/shared"],
+    "@t3sparks/shared": ["@t3sparks/shared@workspace:packages/shared"],
 
-    "@t3tools/web": ["@t3tools/web@workspace:apps/web"],
+    "@t3sparks/web": ["@t3sparks/web@workspace:apps/web"],
 
     "@tailwindcss/node": ["@tailwindcss/node@4.2.1", "", { "dependencies": { "@jridgewell/remapping": "^2.3.5", "enhanced-resolve": "^5.19.0", "jiti": "^2.6.1", "lightningcss": "1.31.1", "magic-string": "^0.30.21", "source-map-js": "^1.2.1", "tailwindcss": "4.2.1" } }, "sha512-jlx6sLk4EOwO6hHe1oCGm1Q4AN/s0rSrTTPBGPM0/RQ6Uylwq17FuU8IeJJKEjtc6K6O07zsvP+gDO6MMWo7pg=="],
 
@@ -1705,7 +1705,7 @@
 
     "svgo": ["svgo@4.0.1", "", { "dependencies": { "commander": "^11.1.0", "css-select": "^5.1.0", "css-tree": "^3.0.1", "css-what": "^6.1.0", "csso": "^5.0.5", "picocolors": "^1.1.1", "sax": "^1.5.0" }, "bin": "./bin/svgo.js" }, "sha512-XDpWUOPC6FEibaLzjfe0ucaV0YrOjYotGJO1WpF0Zd+n6ZGEQUsSugaoLq9QkEZtAfQIxT42UChcssDVPP3+/w=="],
 
-    "t3": ["t3@workspace:apps/server"],
+    "t3sparks": ["t3sparks@workspace:apps/server"],
 
     "tabbable": ["tabbable@6.4.0", "", {}, "sha512-05PUHKSNE8ou2dwIxTngl4EzcnsCDZGJ/iCLtDflR/SHB/ny14rXc+qU5P4mG9JkusiV7EivzY9Mhm55AzAvCg=="],
 

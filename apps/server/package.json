@@ -1,13 +1,13 @@
 {
-  "name": "t3",
-  "version": "0.0.5",
+  "name": "t3sparks",
+  "version": "0.0.6",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pingdotgg/t3code",
+    "url": "https://github.com/sparkserian/t3sparks",
     "directory": "apps/server"
   },
   "bin": {
-    "t3": "./dist/index.mjs"
+    "t3sparks": "./dist/index.mjs"
   },
   "files": [
     "dist"
@@ -33,9 +33,9 @@
   "devDependencies": {
     "@effect/language-service": "catalog:",
     "@effect/vitest": "catalog:",
-    "@t3tools/contracts": "workspace:*",
-    "@t3tools/shared": "workspace:*",
-    "@t3tools/web": "workspace:*",
+    "@t3sparks/contracts": "workspace:*",
+    "@t3sparks/shared": "workspace:*",
+    "@t3sparks/web": "workspace:*",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "@types/ws": "^8.5.13",

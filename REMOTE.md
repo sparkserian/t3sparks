@@ -1,20 +1,20 @@
 # Remote Access Setup
 
-Use this when you want to open T3 Code from another device (phone, tablet, another laptop).
+Use this when you want to open T3 Sparks from another device (phone, tablet, another laptop).
 
 ## CLI ↔ Env option map
 
-The T3 Code CLI accepts the following configuration options, available either as CLI flags or environment variables:
+The T3 Sparks CLI accepts the following configuration options, available either as CLI flags or environment variables:
 
 | CLI flag                | Env var               | Notes                              |
 | ----------------------- | --------------------- | ---------------------------------- |
-| `--mode <web\|desktop>` | `T3CODE_MODE`         | Runtime mode.                      |
-| `--port <number>`       | `T3CODE_PORT`         | HTTP/WebSocket port.               |
-| `--host <address>`      | `T3CODE_HOST`         | Bind interface/address.            |
-| `--state-dir <path>`    | `T3CODE_STATE_DIR`    | State directory.                   |
+| `--mode <web\|desktop>` | `T3SPARKS_MODE`         | Runtime mode.                      |
+| `--port <number>`       | `T3SPARKS_PORT`         | HTTP/WebSocket port.               |
+| `--host <address>`      | `T3SPARKS_HOST`         | Bind interface/address.            |
+| `--state-dir <path>`    | `T3SPARKS_STATE_DIR`    | State directory.                   |
 | `--dev-url <url>`       | `VITE_DEV_SERVER_URL` | Dev web URL redirect/proxy target. |
-| `--no-browser`          | `T3CODE_NO_BROWSER`   | Disable auto-open browser.         |
-| `--auth-token <token>`  | `T3CODE_AUTH_TOKEN`   | WebSocket auth token.              |
+| `--no-browser`          | `T3SPARKS_NO_BROWSER`   | Disable auto-open browser.         |
+| `--auth-token <token>`  | `T3SPARKS_AUTH_TOKEN`   | WebSocket auth token.              |
 
 > TIP: Use the `--help` flag to see all available options and their descriptions.
 

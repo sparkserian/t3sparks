@@ -1,4 +1,4 @@
-import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3tools/contracts";
+import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3sparks/contracts";
 
 export type DesktopUpdateButtonAction = "download" | "install" | "none";
 

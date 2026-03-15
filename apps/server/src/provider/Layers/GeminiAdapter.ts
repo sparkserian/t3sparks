@@ -9,7 +9,7 @@ import {
   RuntimeItemId,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@t3sparks/contracts";
 import { Effect, Layer, Queue, Schema, Stream } from "effect";
 
 import {

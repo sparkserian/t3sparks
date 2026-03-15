@@ -7,12 +7,12 @@ import * as Path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
 import * as Effect from "effect/Effect";
-import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3tools/contracts";
+import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3sparks/contracts";
 import { autoUpdater } from "electron-updater";
 
-import type { ContextMenuItem } from "@t3tools/contracts";
-import { NetService } from "@t3tools/shared/Net";
-import { RotatingFileSink } from "@t3tools/shared/logging";
+import type { ContextMenuItem } from "@t3sparks/contracts";
+import { NetService } from "@t3sparks/shared/Net";
+import { RotatingFileSink } from "@t3sparks/shared/logging";
 import { showDesktopConfirmDialog } from "./confirmDialog";
 import { fixPath } from "./fixPath";
 import {
@@ -44,12 +44,12 @@ const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const STATE_DIR =
-  process.env.T3CODE_STATE_DIR?.trim() || Path.join(OS.homedir(), ".t3", "userdata");
+  process.env.T3SPARKS_STATE_DIR?.trim() || Path.join(OS.homedir(), ".t3sparks", "userdata");
 const DESKTOP_SCHEME = "t3";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const APP_DISPLAY_NAME = isDevelopment ? "T3 Sparks (Dev)" : "T3 Sparks (Alpha)";
-const APP_USER_MODEL_ID = "com.t3tools.t3code";
+const APP_USER_MODEL_ID = "com.sparkserian.t3sparks";
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
@@ -294,8 +294,8 @@ function resolveEmbeddedCommitHash(): string | null {
 
   try {
     const raw = FS.readFileSync(packageJsonPath, "utf8");
-    const parsed = JSON.parse(raw) as { t3codeCommitHash?: unknown };
-    return normalizeCommitHash(parsed.t3codeCommitHash);
+    const parsed = JSON.parse(raw) as { t3sparksCommitHash?: unknown };
+    return normalizeCommitHash(parsed.t3sparksCommitHash);
   } catch {
     return null;
   }
@@ -306,7 +306,7 @@ function resolveAboutCommitHash(): string | null {
     return aboutCommitHashCache;
   }
 
-  const envCommitHash = normalizeCommitHash(process.env.T3CODE_COMMIT_HASH);
+  const envCommitHash = normalizeCommitHash(process.env.T3SPARKS_COMMIT_HASH);
   if (envCommitHash) {
     aboutCommitHashCache = envCommitHash;
     return aboutCommitHashCache;
@@ -468,7 +468,7 @@ function handleCheckForUpdatesMenuClick(): void {
     isPackaged: app.isPackaged,
     platform: process.platform,
     appImage: process.env.APPIMAGE,
-    disabledByEnv: process.env.T3CODE_DISABLE_AUTO_UPDATE === "1",
+    disabledByEnv: process.env.T3SPARKS_DISABLE_AUTO_UPDATE === "1",
   });
   if (disabledReason) {
     console.info("[desktop-updater] Manual update check requested, but updates are disabled.");
@@ -623,7 +623,7 @@ function shouldEnableAutoUpdates(): boolean {
       isPackaged: app.isPackaged,
       platform: process.platform,
       appImage: process.env.APPIMAGE,
-      disabledByEnv: process.env.T3CODE_DISABLE_AUTO_UPDATE === "1",
+      disabledByEnv: process.env.T3SPARKS_DISABLE_AUTO_UPDATE === "1",
     }) === null
   );
 }
@@ -705,7 +705,7 @@ function configureAutoUpdater(): void {
   updaterConfigured = true;
 
   const githubToken =
-    process.env.T3CODE_DESKTOP_UPDATE_GITHUB_TOKEN?.trim() ||
+    process.env.T3SPARKS_DESKTOP_UPDATE_GITHUB_TOKEN?.trim() ||
     process.env.GH_TOKEN?.trim() ||
     "";
   if (githubToken) {
@@ -790,11 +790,11 @@ function configureAutoUpdater(): void {
 function backendEnv(): NodeJS.ProcessEnv {
   return {
     ...process.env,
-    T3CODE_MODE: "desktop",
-    T3CODE_NO_BROWSER: "1",
-    T3CODE_PORT: String(backendPort),
-    T3CODE_STATE_DIR: STATE_DIR,
-    T3CODE_AUTH_TOKEN: backendAuthToken,
+    T3SPARKS_MODE: "desktop",
+    T3SPARKS_NO_BROWSER: "1",
+    T3SPARKS_PORT: String(backendPort),
+    T3SPARKS_STATE_DIR: STATE_DIR,
+    T3SPARKS_AUTH_TOKEN: backendAuthToken,
   };
 }
 
@@ -1150,7 +1150,7 @@ async function bootstrap(): Promise<void> {
   writeDesktopLogHeader(`reserved backend port via NetService port=${backendPort}`);
   backendAuthToken = Crypto.randomBytes(24).toString("hex");
   backendWsUrl = `ws://127.0.0.1:${backendPort}/?token=${encodeURIComponent(backendAuthToken)}`;
-  process.env.T3CODE_DESKTOP_WS_URL = backendWsUrl;
+  process.env.T3SPARKS_DESKTOP_WS_URL = backendWsUrl;
   writeDesktopLogHeader(`bootstrap resolved websocket url=${backendWsUrl}`);
 
   registerIpcHandlers();

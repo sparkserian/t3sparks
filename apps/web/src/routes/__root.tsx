@@ -1,4 +1,4 @@
-import { ThreadId } from "@t3tools/contracts";
+import { ThreadId } from "@t3sparks/contracts";
 import {
   Outlet,
   createRootRouteWithContext,

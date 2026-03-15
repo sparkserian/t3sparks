@@ -6,7 +6,7 @@ import {
   type CodexReasoningEffort,
   type ModelSlug,
   type ProviderKind,
-} from "@t3tools/contracts";
+} from "@t3sparks/contracts";
 
 type CatalogProvider = keyof typeof MODEL_OPTIONS_BY_PROVIDER;
 

@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const APP_DISPLAY_NAME = isDevelopment ? "T3 Sparks (Dev)" : "T3 Sparks (Alpha)";
-const APP_BUNDLE_ID = "com.t3tools.t3code";
+const APP_BUNDLE_ID = "com.sparkserian.t3sparks";
 const LAUNCHER_VERSION = 1;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

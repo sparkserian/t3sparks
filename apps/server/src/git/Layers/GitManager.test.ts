@@ -100,7 +100,7 @@ function createBareRemote(): Effect.Effect<
   FileSystem.FileSystem | Scope.Scope | GitService
 > {
   return Effect.gen(function* () {
-    const remoteDir = yield* makeTempDir("t3code-git-remote-");
+    const remoteDir = yield* makeTempDir("t3sparks-git-remote-");
     yield* runGit(remoteDir, ["init", "--bare"]);
     return remoteDir;
   });
@@ -194,7 +194,7 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
     if (args[0] === "pr" && args[1] === "create") {
       return Effect.succeed({
         stdout:
-          (scenario.createdPrUrl ?? "https://github.com/pingdotgg/codething-mvp/pull/101") + "\n",
+          (scenario.createdPrUrl ?? "https://github.com/sparkserian/t3sparks-fixture/pull/101") + "\n",
         stderr: "",
         code: 0,
         signal: null,
@@ -326,7 +326,7 @@ const GitManagerTestLayer = Layer.provideMerge(GitServiceLive, NodeServices.laye
 it.layer(GitManagerTestLayer)("GitManager", (it) => {
   it.effect("status includes PR metadata when branch already has an open PR", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("t3sparks-git-manager-");
       yield* initRepo(repoDir);
       yield* runGit(repoDir, ["checkout", "-b", "feature/status-open-pr"]);
       const remoteDir = yield* createBareRemote();
@@ -340,7 +340,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               {
                 number: 13,
                 title: "Existing PR",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/13",
+                url: "https://github.com/sparkserian/t3sparks-fixture/pull/13",
                 baseRefName: "main",
                 headRefName: "feature/status-open-pr",
               },
@@ -354,7 +354,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(status.pr).toEqual({
         number: 13,
         title: "Existing PR",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/13",
+        url: "https://github.com/sparkserian/t3sparks-fixture/pull/13",
         baseBranch: "main",
         headBranch: "feature/status-open-pr",
         state: "open",
@@ -364,7 +364,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("status returns merged PR state when latest PR was merged", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("t3sparks-git-manager-");
       yield* initRepo(repoDir);
       yield* runGit(repoDir, ["checkout", "-b", "feature/status-merged-pr"]);
 
@@ -375,7 +375,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               {
                 number: 22,
                 title: "Merged PR",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/22",
+                url: "https://github.com/sparkserian/t3sparks-fixture/pull/22",
                 baseRefName: "main",
                 headRefName: "feature/status-merged-pr",
                 state: "MERGED",
@@ -392,7 +392,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(status.pr).toEqual({
         number: 22,
         title: "Merged PR",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/22",
+        url: "https://github.com/sparkserian/t3sparks-fixture/pull/22",
         baseBranch: "main",
         headBranch: "feature/status-merged-pr",
         state: "merged",
@@ -402,7 +402,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("status prefers open PR when merged PR has newer updatedAt", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("t3sparks-git-manager-");
       yield* initRepo(repoDir);
       yield* runGit(repoDir, ["checkout", "-b", "feature/status-open-over-merged"]);
 
@@ -413,7 +413,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               {
                 number: 45,
                 title: "Merged PR",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/45",
+                url: "https://github.com/sparkserian/t3sparks-fixture/pull/45",
                 baseRefName: "main",
                 headRefName: "feature/status-open-over-merged",
                 state: "MERGED",
@@ -423,7 +423,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               {
                 number: 46,
                 title: "Open PR",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/46",
+                url: "https://github.com/sparkserian/t3sparks-fixture/pull/46",
                 baseRefName: "main",
                 headRefName: "feature/status-open-over-merged",
                 state: "OPEN",
@@ -439,7 +439,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(status.pr).toEqual({
         number: 46,
         title: "Open PR",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/46",
+        url: "https://github.com/sparkserian/t3sparks-fixture/pull/46",
         baseBranch: "main",
         headBranch: "feature/status-open-over-merged",
         state: "open",
@@ -449,7 +449,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("status is resilient to gh lookup failures and returns pr null", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("t3sparks-git-manager-");
       yield* initRepo(repoDir);
       yield* runGit(repoDir, ["checkout", "-b", "feature/status-no-gh"]);
       const remoteDir = yield* createBareRemote();
@@ -473,7 +473,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("creates a commit when working tree is dirty", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("t3sparks-git-manager-");
       yield* initRepo(repoDir);
       fs.writeFileSync(path.join(repoDir, "README.md"), "hello\nworld\n");
 
@@ -497,7 +497,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("uses custom commit message when provided", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("t3sparks-git-manager-");
       yield* initRepo(repoDir);
       fs.writeFileSync(path.join(repoDir, "README.md"), "hello\ncustom\n");
       let generatedCount = 0;
@@ -540,7 +540,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("creates feature branch, commits, and pushes with featureBranch option", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("t3sparks-git-manager-");
       yield* initRepo(repoDir);
       const remoteDir = yield* createBareRemote();
       yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
@@ -592,7 +592,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("featureBranch uses custom commit message and derives branch name", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("t3sparks-git-manager-");
       yield* initRepo(repoDir);
       fs.writeFileSync(path.join(repoDir, "README.md"), "hello\ncustom-feature\n");
       let generatedCount = 0;
@@ -635,7 +635,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("skips commit when there are no uncommitted changes", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("t3sparks-git-manager-");
       yield* initRepo(repoDir);
 
       const { manager } = yield* makeManager();
@@ -653,7 +653,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("featureBranch returns error when worktree is clean", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("t3sparks-git-manager-");
       yield* initRepo(repoDir);
 
       const { manager } = yield* makeManager();
@@ -672,7 +672,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("commits and pushes with upstream auto-setup when needed", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("t3sparks-git-manager-");
       yield* initRepo(repoDir);
       yield* runGit(repoDir, ["checkout", "-b", "feature/stacked-flow"]);
       const remoteDir = yield* createBareRemote();
@@ -701,7 +701,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     "pushes and creates PR from a no-upstream branch when local commits are ahead of base",
     () =>
       Effect.gen(function* () {
-        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        const repoDir = yield* makeTempDir("t3sparks-git-manager-");
         yield* initRepo(repoDir);
         yield* runGit(repoDir, ["checkout", "-b", "feature/no-upstream-pr"]);
         const remoteDir = yield* createBareRemote();
@@ -716,7 +716,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                 {
                   number: 77,
                   title: "Add no-upstream PR flow",
-                  url: "https://github.com/pingdotgg/codething-mvp/pull/77",
+                  url: "https://github.com/sparkserian/t3sparks-fixture/pull/77",
                   baseRefName: "main",
                   headRefName: "feature/no-upstream-pr",
                 },
@@ -750,7 +750,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("skips push when branch is already up to date", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("t3sparks-git-manager-");
       yield* initRepo(repoDir);
       yield* runGit(repoDir, ["checkout", "-b", "feature/up-to-date"]);
       const remoteDir = yield* createBareRemote();
@@ -771,7 +771,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("returns existing PR metadata for commit/push/pr action", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("t3sparks-git-manager-");
       yield* initRepo(repoDir);
       yield* runGit(repoDir, ["checkout", "-b", "feature/existing-pr"]);
       const remoteDir = yield* createBareRemote();
@@ -785,7 +785,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               {
                 number: 42,
                 title: "Existing PR",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+                url: "https://github.com/sparkserian/t3sparks-fixture/pull/42",
                 baseRefName: "main",
                 headRefName: "feature/existing-pr",
               },
@@ -807,7 +807,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("creates PR when one does not already exist", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("t3sparks-git-manager-");
       yield* initRepo(repoDir);
       yield* runGit(repoDir, ["checkout", "-b", "feature-create-pr"]);
       const remoteDir = yield* createBareRemote();
@@ -826,7 +826,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               {
                 number: 88,
                 title: "Add stacked git actions",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/88",
+                url: "https://github.com/sparkserian/t3sparks-fixture/pull/88",
                 baseRefName: "main",
                 headRefName: "feature-create-pr",
               },
@@ -851,7 +851,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("rejects push/pr actions from detached HEAD", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("t3sparks-git-manager-");
       yield* initRepo(repoDir);
       yield* runGit(repoDir, ["checkout", "--detach", "HEAD"]);
 
@@ -869,7 +869,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("surfaces missing gh binary errors", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("t3sparks-git-manager-");
       yield* initRepo(repoDir);
       yield* runGit(repoDir, ["checkout", "-b", "feature/gh-missing"]);
       const remoteDir = yield* createBareRemote();
@@ -898,7 +898,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
   it.effect("surfaces gh auth errors with guidance", () =>
     Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const repoDir = yield* makeTempDir("t3sparks-git-manager-");
       yield* initRepo(repoDir);
       yield* runGit(repoDir, ["checkout", "-b", "feature/gh-auth"]);
       const remoteDir = yield* createBareRemote();

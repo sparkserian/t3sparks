@@ -26,7 +26,7 @@ import {
   WebSocketRequest,
   WsPush,
   WsResponse,
-} from "@t3tools/contracts";
+} from "@t3sparks/contracts";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import {
   Cause,
@@ -98,7 +98,7 @@ export interface ServerShape {
 /**
  * Server - Service tag for HTTP/WebSocket lifecycle management.
  */
-export class Server extends ServiceMap.Service<Server, ServerShape>()("t3/wsServer/Server") {}
+export class Server extends ServiceMap.Service<Server, ServerShape>()("t3sparks/wsServer/Server") {}
 
 const isServerNotRunningError = (error: unknown): boolean => {
   if (!(error instanceof Error)) return false;

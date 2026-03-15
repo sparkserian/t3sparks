@@ -1,5 +1,5 @@
 {
-  "name": "@t3tools/shared",
+  "name": "@t3sparks/shared",
   "version": "0.0.0-alpha.1",
   "private": true,
   "type": "module",
@@ -27,7 +27,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@t3tools/contracts": "workspace:*",
+    "@t3sparks/contracts": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
-import { type ProviderKind } from "@t3tools/contracts";
-import { getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
+import { type ProviderKind } from "@t3sparks/contracts";
+import { getModelOptions, normalizeModelSlug } from "@t3sparks/shared/model";
 import { ZapIcon } from "lucide-react";
 
 import {

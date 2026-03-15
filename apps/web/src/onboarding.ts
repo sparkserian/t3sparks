@@ -1,4 +1,4 @@
-const OPEN_ONBOARDING_EVENT = "t3code:open-onboarding";
+const OPEN_ONBOARDING_EVENT = "t3sparks:open-onboarding";
 
 export const DEFAULT_PROJECT_HOME_DIRECTORY_LABEL = "My Projects";
 

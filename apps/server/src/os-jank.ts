@@ -33,7 +33,7 @@ export const expandHomePath = Effect.fn(function* (input: string) {
 export const resolveStateDir = Effect.fn(function* (raw: string | undefined) {
   const { join, resolve } = yield* Path.Path;
   if (!raw || raw.trim().length === 0) {
-    return join(OS.homedir(), ".t3", "userdata");
+    return join(OS.homedir(), ".t3sparks", "userdata");
   }
   return resolve(yield* expandHomePath(raw.trim()));
 });

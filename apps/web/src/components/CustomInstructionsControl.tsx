@@ -1,4 +1,4 @@
-import type { CustomInstruction } from "@t3tools/contracts";
+import type { CustomInstruction } from "@t3sparks/contracts";
 import { BookTextIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 

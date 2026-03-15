@@ -7,8 +7,8 @@ import {
   type ProviderKind,
   type ProviderInteractionMode,
   type RuntimeMode,
-} from "@t3tools/contracts";
-import { normalizeModelSlug } from "@t3tools/shared/model";
+} from "@t3sparks/contracts";
+import { normalizeModelSlug } from "@t3sparks/shared/model";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -18,7 +18,7 @@ import { normalizeSelectedCustomInstructionIds } from "./customInstructions";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-export const COMPOSER_DRAFT_STORAGE_KEY = "t3code:composer-drafts:v1";
+export const COMPOSER_DRAFT_STORAGE_KEY = "t3sparks:composer-drafts:v1";
 export type DraftThreadEnvMode = "local" | "worktree";
 
 export interface PersistedComposerImageAttachment {

@@ -3,7 +3,7 @@ import {
   type KeybindingShortcut,
   type KeybindingWhenNode,
   type ResolvedKeybindingsConfig,
-} from "@t3tools/contracts";
+} from "@t3sparks/contracts";
 import { isMacPlatform } from "./lib/utils";
 
 export interface ShortcutEventLike {

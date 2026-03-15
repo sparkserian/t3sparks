@@ -1,4 +1,4 @@
-import type { ThreadId } from "@t3tools/contracts";
+import type { ThreadId } from "@t3sparks/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BoxIcon, ExternalLinkIcon, LoaderCircleIcon, RocketIcon, SquareTerminalIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";

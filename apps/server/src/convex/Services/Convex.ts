@@ -1,4 +1,4 @@
-import type { ConvexStatusResult } from "@t3tools/contracts";
+import type { ConvexStatusResult } from "@t3sparks/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -10,4 +10,4 @@ export interface ConvexShape {
   }) => Effect.Effect<ConvexStatusResult, ConvexError>;
 }
 
-export class Convex extends ServiceMap.Service<Convex, ConvexShape>()("t3/convex/Services/Convex") {}
+export class Convex extends ServiceMap.Service<Convex, ConvexShape>()("t3sparks/convex/Services/Convex") {}

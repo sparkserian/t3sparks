@@ -1,4 +1,4 @@
-import type { ConvexStatusResult } from "@t3tools/contracts";
+import type { ConvexStatusResult } from "@t3sparks/contracts";
 import { queryOptions } from "@tanstack/react-query";
 
 import { ensureNativeApi } from "~/nativeApi";

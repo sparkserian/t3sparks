@@ -13,7 +13,7 @@ import {
   OrchestrationThreadActivityTone,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@t3sparks/contracts";
 import { Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -80,4 +80,4 @@ export interface ProjectionThreadActivityRepositoryShape {
 export class ProjectionThreadActivityRepository extends ServiceMap.Service<
   ProjectionThreadActivityRepository,
   ProjectionThreadActivityRepositoryShape
->()("t3/persistence/Services/ProjectionThreadActivities/ProjectionThreadActivityRepository") {}
+>()("t3sparks/persistence/Services/ProjectionThreadActivities/ProjectionThreadActivityRepository") {}

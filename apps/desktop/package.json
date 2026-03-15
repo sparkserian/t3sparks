@@ -1,6 +1,6 @@
 {
-  "name": "@t3tools/desktop",
-  "version": "0.0.5",
+  "name": "@t3sparks/desktop",
+  "version": "0.0.6",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
@@ -19,8 +19,8 @@
     "electron-updater": "^6.6.2"
   },
   "devDependencies": {
-    "@t3tools/contracts": "workspace:*",
-    "@t3tools/shared": "workspace:*",
+    "@t3sparks/contracts": "workspace:*",
+    "@t3sparks/shared": "workspace:*",
     "@types/node": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",

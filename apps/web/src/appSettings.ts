@@ -4,11 +4,11 @@ import {
   CustomInstruction,
   type ProviderKind,
   type ProviderServiceTier,
-} from "@t3tools/contracts";
-import { getDefaultModel, getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
+} from "@t3sparks/contracts";
+import { getDefaultModel, getModelOptions, normalizeModelSlug } from "@t3sparks/shared/model";
 import { normalizeCustomInstructions } from "./customInstructions";
 
-const APP_SETTINGS_STORAGE_KEY = "t3code:app-settings:v1";
+const APP_SETTINGS_STORAGE_KEY = "t3sparks:app-settings:v1";
 const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
 const MAX_PROJECT_HOME_PATH_LENGTH = 4096;

@@ -1,5 +1,5 @@
 {
-  "name": "@t3tools/scripts",
+  "name": "@t3sparks/scripts",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,8 +9,8 @@
   },
   "dependencies": {
     "@effect/platform-node": "catalog:",
-    "@t3tools/contracts": "workspace:*",
-    "@t3tools/shared": "workspace:*",
+    "@t3sparks/contracts": "workspace:*",
+    "@t3sparks/shared": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

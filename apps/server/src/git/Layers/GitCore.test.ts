@@ -873,26 +873,26 @@ it.layer(TestLayer)("git integration", (it) => {
       Effect.gen(function* () {
         const tmp = yield* makeTmpDir();
         yield* initRepoWithCommit(tmp);
-        yield* createGitBranch({ cwd: tmp, branch: "t3code/feat/session" });
-        yield* createGitBranch({ cwd: tmp, branch: "t3code/tmp-working" });
-        yield* checkoutGitBranch({ cwd: tmp, branch: "t3code/tmp-working" });
+        yield* createGitBranch({ cwd: tmp, branch: "t3sparks/feat/session" });
+        yield* createGitBranch({ cwd: tmp, branch: "t3sparks/tmp-working" });
+        yield* checkoutGitBranch({ cwd: tmp, branch: "t3sparks/tmp-working" });
 
         const renamed = yield* renameGitBranch({
           cwd: tmp,
-          oldBranch: "t3code/tmp-working",
-          newBranch: "t3code/feat/session",
+          oldBranch: "t3sparks/tmp-working",
+          newBranch: "t3sparks/feat/session",
         });
 
-        expect(renamed.branch).toBe("t3code/feat/session-1");
+        expect(renamed.branch).toBe("t3sparks/feat/session-1");
         const branches = yield* listGitBranches({ cwd: tmp });
-        expect(branches.branches.some((branch) => branch.name === "t3code/feat/session")).toBe(
+        expect(branches.branches.some((branch) => branch.name === "t3sparks/feat/session")).toBe(
           true,
         );
-        expect(branches.branches.some((branch) => branch.name === "t3code/feat/session-1")).toBe(
+        expect(branches.branches.some((branch) => branch.name === "t3sparks/feat/session-1")).toBe(
           true,
         );
         const current = branches.branches.find((branch) => branch.current);
-        expect(current?.name).toBe("t3code/feat/session-1");
+        expect(current?.name).toBe("t3sparks/feat/session-1");
       }),
     );
 
@@ -900,18 +900,18 @@ it.layer(TestLayer)("git integration", (it) => {
       Effect.gen(function* () {
         const tmp = yield* makeTmpDir();
         yield* initRepoWithCommit(tmp);
-        yield* createGitBranch({ cwd: tmp, branch: "t3code/feat/session" });
-        yield* createGitBranch({ cwd: tmp, branch: "t3code/feat/session-1" });
-        yield* createGitBranch({ cwd: tmp, branch: "t3code/tmp-working" });
-        yield* checkoutGitBranch({ cwd: tmp, branch: "t3code/tmp-working" });
+        yield* createGitBranch({ cwd: tmp, branch: "t3sparks/feat/session" });
+        yield* createGitBranch({ cwd: tmp, branch: "t3sparks/feat/session-1" });
+        yield* createGitBranch({ cwd: tmp, branch: "t3sparks/tmp-working" });
+        yield* checkoutGitBranch({ cwd: tmp, branch: "t3sparks/tmp-working" });
 
         const renamed = yield* renameGitBranch({
           cwd: tmp,
-          oldBranch: "t3code/tmp-working",
-          newBranch: "t3code/feat/session",
+          oldBranch: "t3sparks/tmp-working",
+          newBranch: "t3sparks/feat/session",
         });
 
-        expect(renamed.branch).toBe("t3code/feat/session-2");
+        expect(renamed.branch).toBe("t3sparks/feat/session-2");
       }),
     );
 

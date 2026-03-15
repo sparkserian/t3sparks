@@ -1,4 +1,4 @@
-import type { GeminiStatusResult } from "@t3tools/contracts";
+import type { GeminiStatusResult } from "@t3sparks/contracts";
 import { Effect, Layer, Schema } from "effect";
 
 import { GeminiError } from "../Errors.ts";

@@ -1,4 +1,4 @@
-import type { GeminiStatusResult } from "@t3tools/contracts";
+import type { GeminiStatusResult } from "@t3sparks/contracts";
 
 import { Button } from "./ui/button";
 import {

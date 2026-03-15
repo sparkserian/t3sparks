@@ -1,4 +1,4 @@
-import { EDITORS, type EditorId } from "@t3tools/contracts";
+import { EDITORS, type EditorId } from "@t3sparks/contracts";
 import { isMacPlatform } from "./lib/utils";
 
 export type TerminalLinkKind = "url" | "path";
@@ -14,7 +14,7 @@ const URL_PATTERN = /https?:\/\/[^\s"'`<>]+/g;
 const FILE_PATH_PATTERN =
   /(?:~\/|\.{1,2}\/|\/|[A-Za-z]:\\|\\\\)[^\s"'`<>]+|[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+(?::\d+){0,2}/g;
 const TRAILING_PUNCTUATION_PATTERN = /[.,;!?]+$/;
-const LAST_EDITOR_KEY = "t3code:last-editor";
+const LAST_EDITOR_KEY = "t3sparks:last-editor";
 
 function trimClosingDelimiters(value: string): string {
   let output = value.replace(TRAILING_PUNCTUATION_PATTERN, "");

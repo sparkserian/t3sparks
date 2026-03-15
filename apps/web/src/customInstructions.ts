@@ -1,10 +1,10 @@
-import type { CustomInstruction } from "@t3tools/contracts";
+import type { CustomInstruction } from "@t3sparks/contracts";
 import {
   CUSTOM_INSTRUCTION_BODY_MAX_CHARS,
   CUSTOM_INSTRUCTION_ID_MAX_CHARS,
   CUSTOM_INSTRUCTION_MAX_COUNT,
   CUSTOM_INSTRUCTION_TITLE_MAX_CHARS,
-} from "@t3tools/contracts";
+} from "@t3sparks/contracts";
 
 function trimToNull(value: unknown, maxLength: number): string | null {
   if (typeof value !== "string") {

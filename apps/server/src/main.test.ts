@@ -1,14 +1,14 @@
 import * as Http from "node:http";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it, vi } from "@effect/vitest";
-import type { OrchestrationReadModel } from "@t3tools/contracts";
+import type { OrchestrationReadModel } from "@t3sparks/contracts";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Command from "effect/unstable/cli/Command";
 import { FetchHttpClient } from "effect/unstable/http";
 import { beforeEach } from "vitest";
-import { NetService } from "@t3tools/shared/Net";
+import { NetService } from "@t3sparks/shared/Net";
 
 import { CliConfig, recordStartupHeartbeat, t3Cli, type CliConfigShape } from "./main";
 import { ServerConfig, type ServerConfigShape } from "./config";
@@ -58,7 +58,7 @@ const testLayer = Layer.mergeAll(
 
 const runCli = (
   args: ReadonlyArray<string>,
-  env: Record<string, string> = { T3CODE_NO_BROWSER: "true" },
+  env: Record<string, string> = { T3SPARKS_NO_BROWSER: "true" },
 ) => {
   const uniqueStateDir = `/tmp/t3-cli-state-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   return Command.runWith(t3Cli, { version: "0.0.0-test" })(args).pipe(
@@ -66,7 +66,7 @@ const runCli = (
       ConfigProvider.layer(
         ConfigProvider.fromEnv({
           env: {
-            T3CODE_STATE_DIR: uniqueStateDir,
+            T3SPARKS_STATE_DIR: uniqueStateDir,
             ...env,
           },
         }),
@@ -128,13 +128,13 @@ it.layer(testLayer)("server CLI command", (it) => {
   it.effect("uses env fallbacks when flags are not provided", () =>
     Effect.gen(function* () {
       yield* runCli([], {
-        T3CODE_MODE: "desktop",
-        T3CODE_PORT: "4999",
-        T3CODE_HOST: "100.88.10.4",
-        T3CODE_STATE_DIR: "/tmp/t3-env-state",
+        T3SPARKS_MODE: "desktop",
+        T3SPARKS_PORT: "4999",
+        T3SPARKS_HOST: "100.88.10.4",
+        T3SPARKS_STATE_DIR: "/tmp/t3-env-state",
         VITE_DEV_SERVER_URL: "http://localhost:5173",
-        T3CODE_NO_BROWSER: "true",
-        T3CODE_AUTH_TOKEN: "env-token",
+        T3SPARKS_NO_BROWSER: "true",
+        T3SPARKS_AUTH_TOKEN: "env-token",
       });
 
       assert.equal(start.mock.calls.length, 1);
@@ -151,12 +151,12 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
-  it.effect("prefers --mode over T3CODE_MODE", () =>
+  it.effect("prefers --mode over T3SPARKS_MODE", () =>
     Effect.gen(function* () {
       findAvailablePort.mockImplementation((_preferred: number) => Effect.succeed(4666));
       yield* runCli(["--mode", "web"], {
-        T3CODE_MODE: "desktop",
-        T3CODE_NO_BROWSER: "true",
+        T3SPARKS_MODE: "desktop",
+        T3SPARKS_NO_BROWSER: "true",
       });
 
       assert.deepStrictEqual(findAvailablePort.mock.calls, [[3773]]);
@@ -167,10 +167,10 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
-  it.effect("prefers --no-browser over T3CODE_NO_BROWSER", () =>
+  it.effect("prefers --no-browser over T3SPARKS_NO_BROWSER", () =>
     Effect.gen(function* () {
       yield* runCli(["--no-browser"], {
-        T3CODE_NO_BROWSER: "false",
+        T3SPARKS_NO_BROWSER: "false",
       });
 
       assert.equal(start.mock.calls.length, 1);
@@ -193,8 +193,8 @@ it.layer(testLayer)("server CLI command", (it) => {
   it.effect("uses fixed localhost defaults in desktop mode", () =>
     Effect.gen(function* () {
       yield* runCli([], {
-        T3CODE_MODE: "desktop",
-        T3CODE_NO_BROWSER: "true",
+        T3SPARKS_MODE: "desktop",
+        T3SPARKS_NO_BROWSER: "true",
       });
 
       assert.equal(findAvailablePort.mock.calls.length, 0);
@@ -208,8 +208,8 @@ it.layer(testLayer)("server CLI command", (it) => {
   it.effect("allows overriding desktop host with --host", () =>
     Effect.gen(function* () {
       yield* runCli(["--host", "0.0.0.0"], {
-        T3CODE_MODE: "desktop",
-        T3CODE_NO_BROWSER: "true",
+        T3SPARKS_MODE: "desktop",
+        T3SPARKS_NO_BROWSER: "true",
       });
 
       assert.equal(start.mock.calls.length, 1);
@@ -221,10 +221,10 @@ it.layer(testLayer)("server CLI command", (it) => {
   it.effect("supports CLI and env for bootstrap/log websocket toggles", () =>
     Effect.gen(function* () {
       yield* runCli(["--auto-bootstrap-project-from-cwd"], {
-        T3CODE_MODE: "desktop",
-        T3CODE_LOG_WS_EVENTS: "false",
-        T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",
-        T3CODE_NO_BROWSER: "true",
+        T3SPARKS_MODE: "desktop",
+        T3SPARKS_LOG_WS_EVENTS: "false",
+        T3SPARKS_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",
+        T3SPARKS_NO_BROWSER: "true",
       });
 
       assert.equal(start.mock.calls.length, 1);

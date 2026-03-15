@@ -9,7 +9,7 @@ import {
   TurnId,
   type OrchestrationThreadActivity,
   type ProviderRuntimeEvent,
-} from "@t3tools/contracts";
+} from "@t3sparks/contracts";
 import { Cache, Cause, Duration, Effect, Layer, Option, Queue, Ref, Stream } from "effect";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
@@ -31,7 +31,7 @@ const BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL = Duration.minutes(120);
 const BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY = 10_000;
 const BUFFERED_PROPOSED_PLAN_BY_ID_TTL = Duration.minutes(120);
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
-const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.T3CODE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
+const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.T3SPARKS_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
 
 type TurnStartRequestedDomainEvent = Extract<
   OrchestrationEvent,

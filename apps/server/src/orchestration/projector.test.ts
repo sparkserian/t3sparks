@@ -4,7 +4,7 @@ import {
   ProjectId,
   ThreadId,
   type OrchestrationEvent,
-} from "@t3tools/contracts";
+} from "@t3sparks/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import type { ConvexPackageManager, ConvexStatusResult } from "@t3tools/contracts";
+import type { ConvexPackageManager, ConvexStatusResult } from "@t3sparks/contracts";
 import { Effect, Layer, Schema } from "effect";
 
 import { ConvexError } from "../Errors.ts";

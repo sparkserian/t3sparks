@@ -59,7 +59,7 @@ describe("getAppSettingsSnapshot", () => {
         },
       });
       store.set(
-        "t3code:app-settings:v1",
+        "t3sparks:app-settings:v1",
         JSON.stringify({
           projectHomePath: "/Users/william/Projects",
           hasSeenOnboarding: true,

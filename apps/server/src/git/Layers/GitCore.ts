@@ -1019,7 +1019,7 @@ const makeGitCore = Effect.gen(function* () {
       const repoName = path.basename(input.cwd);
       const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? "/tmp";
       const worktreePath =
-        input.path ?? path.join(homeDir, ".t3", "worktrees", repoName, sanitizedBranch);
+        input.path ?? path.join(homeDir, ".t3sparks", "worktrees", repoName, sanitizedBranch);
 
       yield* executeGit(
         "GitCore.createWorktree",

@@ -24,19 +24,19 @@ It does not auto-commit version bumps back to `main`.
 
 Workflow file:
 
-- [release.yml](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3code/.github/workflows/release.yml)
+- [release.yml](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3sparks/.github/workflows/release.yml)
 
 ## GitHub setup
 
 Set these in your local runtime environment when you want desktop update checks to target your repo:
 
 ```env
-T3CODE_DESKTOP_UPDATE_REPOSITORY=owner/repo
-T3CODE_DESKTOP_UPDATE_GITHUB_TOKEN=your_token
+T3SPARKS_DESKTOP_UPDATE_REPOSITORY=owner/repo
+T3SPARKS_DESKTOP_UPDATE_GITHUB_TOKEN=your_token
 GH_TOKEN=your_token
 ```
 
-Your local [`.env.local`](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3code/.env.local) is ignored by git.
+Your local [`.env.local`](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3sparks/.env.local) is ignored by git.
 
 ## Release steps
 
@@ -53,10 +53,10 @@ What each one does:
 - `npm version patch`
   - bumps the root version
   - syncs:
-    - [apps/desktop/package.json](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3code/apps/desktop/package.json)
-    - [apps/server/package.json](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3code/apps/server/package.json)
-    - [apps/web/package.json](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3code/apps/web/package.json)
-    - [packages/contracts/package.json](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3code/packages/contracts/package.json)
+    - [apps/desktop/package.json](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3sparks/apps/desktop/package.json)
+    - [apps/server/package.json](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3sparks/apps/server/package.json)
+    - [apps/web/package.json](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3sparks/apps/web/package.json)
+    - [packages/contracts/package.json](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3sparks/packages/contracts/package.json)
   - creates the release commit and local git tag
 
 - `npm run publish:mac-arm64`
@@ -76,8 +76,8 @@ What each one does:
 - Run `npm version patch` from a clean git working tree.
 - `publish:mac-arm64` and `publish:win` require:
   - `gh` installed
-  - GitHub CLI authenticated, or `GH_TOKEN` available from [`.env.local`](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3code/.env.local)
-- The scripts use [release.yml](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3code/.github/workflows/release.yml) under the hood.
+  - GitHub CLI authenticated, or `GH_TOKEN` available from [`.env.local`](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3sparks/.env.local)
+- The scripts use [release.yml](/Users/williamawuku/Downloads/Emerald%20Chain%20Hub/t3sparks/.github/workflows/release.yml) under the hood.
 
 ## Optional manual trigger
 

@@ -61,7 +61,7 @@ describe("Convex helpers", () => {
   });
 
   it("supports real workspace filenames", () => {
-    const cwd = makeTempDir("t3code-convex-helper-");
+    const cwd = makeTempDir("t3sparks-convex-helper-");
     fs.writeFileSync(path.join(cwd, "package.json"), '{"packageManager":"bun@1.3.10"}');
     fs.writeFileSync(path.join(cwd, "bun.lock"), "");
     expect(
