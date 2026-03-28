@@ -205,7 +205,6 @@ import { SidebarTrigger } from "./ui/sidebar";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import {
-  getAppModelOptions,
   resolveAppModelSelection,
   resolveAppServiceTier,
   shouldShowFastTierIcon,
@@ -213,6 +212,11 @@ import {
   useAppSettings,
 } from "../appSettings";
 import { resolveSelectedCustomInstructions } from "../customInstructions";
+import {
+  getCustomModelOptionsByProvider,
+  getModelOptionsForProvider,
+  normalizeActiveComposerProvider,
+} from "./providerModelOptions";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -840,7 +844,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [settings],
   );
   const selectedModelForPickerWithCustomFallback = useMemo(() => {
-    const currentOptions = modelOptionsByProvider[selectedProvider];
+    const currentOptions = getModelOptionsForProvider(modelOptionsByProvider, selectedProvider);
     return currentOptions.some((option) => option.slug === selectedModelForPicker)
       ? selectedModelForPicker
       : (normalizeModelSlug(selectedModelForPicker, selectedProvider) ?? selectedModelForPicker);
@@ -853,7 +857,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       AVAILABLE_PROVIDER_OPTIONS.filter(
         (option) => lockedProvider === null || option.value === lockedProvider,
       ).flatMap((option) =>
-        modelOptionsByProvider[option.value].map(({ slug, name }) => ({
+        getModelOptionsForProvider(modelOptionsByProvider, option.value).map(({ slug, name }) => ({
           provider: option.value,
           providerLabel: option.label,
           slug,
@@ -5734,17 +5738,6 @@ const COMING_SOON_PROVIDER_OPTIONS = [
   { id: "opencode", label: "OpenCode", icon: OpenCodeIcon },
 ] as const;
 
-function getCustomModelOptionsByProvider(settings: {
-  customCodexModels: readonly string[];
-  customGeminiModels: readonly string[];
-}): Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>> {
-  return {
-    codex: getAppModelOptions("codex", settings.customCodexModels),
-    claudeAgent: getAppModelOptions("claudeAgent", []),
-    gemini: getAppModelOptions("gemini", settings.customGeminiModels),
-  };
-}
-
 function getCustomModelsForProvider(
   settings: {
     customCodexModels: readonly string[];
@@ -5767,15 +5760,6 @@ const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   gemini: Gemini,
   cursor: CursorIcon,
 };
-
-function normalizeActiveComposerProvider(
-  provider: ProviderKind | null | undefined,
-): ProviderKind {
-  if (provider === "gemini") {
-    return "codex";
-  }
-  return provider ?? "codex";
-}
 
 function resolveModelForProviderPicker(
   provider: ProviderKind,
@@ -5820,7 +5804,10 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   onProviderModelChange: (provider: ProviderKind, model: ModelSlug) => void;
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const selectedProviderOptions = props.modelOptionsByProvider[props.provider];
+  const selectedProviderOptions = getModelOptionsForProvider(
+    props.modelOptionsByProvider,
+    props.provider,
+  );
   const selectedModelLabel =
     selectedProviderOptions.find((option) => option.slug === props.model)?.name ?? props.model;
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[props.provider];
@@ -5877,29 +5864,35 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                       if (props.disabled) return;
                       if (isDisabledByProviderLock) return;
                       if (!value) return;
+                      const providerModelOptions = getModelOptionsForProvider(
+                        props.modelOptionsByProvider,
+                        option.value,
+                      );
                       const resolvedModel = resolveModelForProviderPicker(
                         option.value,
                         value,
-                        props.modelOptionsByProvider[option.value],
+                        providerModelOptions,
                       );
                       if (!resolvedModel) return;
                       props.onProviderModelChange(option.value, resolvedModel);
                       setIsMenuOpen(false);
                     }}
                   >
-                    {props.modelOptionsByProvider[option.value].map((modelOption) => (
-                      <MenuRadioItem
-                        key={`${option.value}:${modelOption.slug}`}
-                        value={modelOption.slug}
-                        onClick={() => setIsMenuOpen(false)}
-                      >
-                        {option.value === "codex" &&
-                        shouldShowFastTierIcon(modelOption.slug, props.serviceTierSetting) ? (
-                          <ZapIcon className="size-3.5 shrink-0 text-amber-500" />
-                        ) : null}
-                        {modelOption.name}
-                      </MenuRadioItem>
-                    ))}
+                    {getModelOptionsForProvider(props.modelOptionsByProvider, option.value).map(
+                      (modelOption) => (
+                        <MenuRadioItem
+                          key={`${option.value}:${modelOption.slug}`}
+                          value={modelOption.slug}
+                          onClick={() => setIsMenuOpen(false)}
+                        >
+                          {option.value === "codex" &&
+                          shouldShowFastTierIcon(modelOption.slug, props.serviceTierSetting) ? (
+                            <ZapIcon className="size-3.5 shrink-0 text-amber-500" />
+                          ) : null}
+                          {modelOption.name}
+                        </MenuRadioItem>
+                      ),
+                    )}
                   </MenuRadioGroup>
                 </MenuGroup>
               </MenuSubPopup>
