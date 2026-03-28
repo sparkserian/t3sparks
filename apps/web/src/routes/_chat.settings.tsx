@@ -56,13 +56,6 @@ const MODEL_PROVIDER_SETTINGS: Array<{
     example: "gpt-6.7-codex-ultra-preview",
   },
   {
-    provider: "claudeAgent",
-    title: "Claude Code",
-    description: "Save additional Claude model slugs for the picker and `/model` command.",
-    placeholder: "your-claude-model-slug",
-    example: "claude-sonnet-5-preview",
-  },
-  {
     provider: "gemini",
     title: "Gemini",
     description: "Save additional Gemini model slugs for the picker and `/model` command.",
@@ -78,8 +71,6 @@ function getCustomModelsForProvider(
   switch (provider) {
     case "codex":
       return settings.customCodexModels;
-    case "claudeAgent":
-      return settings.customClaudeModels;
     case "gemini":
       return settings.customGeminiModels;
     default:
@@ -94,8 +85,6 @@ function getDefaultCustomModelsForProvider(
   switch (provider) {
     case "codex":
       return defaults.customCodexModels;
-    case "claudeAgent":
-      return defaults.customClaudeModels;
     case "gemini":
       return defaults.customGeminiModels;
     default:
@@ -107,8 +96,6 @@ function patchCustomModels(provider: ProviderKind, models: string[]) {
   switch (provider) {
     case "codex":
       return { customCodexModels: models };
-    case "claudeAgent":
-      return { customClaudeModels: models };
     case "gemini":
       return { customGeminiModels: models };
     default:
@@ -126,7 +113,6 @@ function SettingsRouteView() {
     Record<ProviderKind, string>
   >({
     codex: "",
-    claudeAgent: "",
     gemini: "",
   });
   const [customModelErrorByProvider, setCustomModelErrorByProvider] = useState<
@@ -570,6 +556,41 @@ function SettingsRouteView() {
                   </Button>
                 </div>
               ) : null}
+
+              <div className="mt-3 flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Context summary on model switch</p>
+                  <p className="text-xs text-muted-foreground">
+                    When you switch models mid-thread, automatically prepend a summary of the
+                    conversation so the new model has full context.
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.enableModelSwitchSummary}
+                  onCheckedChange={(checked) =>
+                    updateSettings({
+                      enableModelSwitchSummary: Boolean(checked),
+                    })
+                  }
+                  aria-label="Context summary on model switch"
+                />
+              </div>
+
+              {settings.enableModelSwitchSummary !== defaults.enableModelSwitchSummary ? (
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={() =>
+                      updateSettings({
+                        enableModelSwitchSummary: defaults.enableModelSwitchSummary,
+                      })
+                    }
+                  >
+                    Restore default
+                  </Button>
+                </div>
+              ) : null}
             </section>
 
             <section className="rounded-2xl border border-border bg-card p-5">
@@ -650,10 +671,145 @@ function SettingsRouteView() {
                 </div>
               ) : null}
             </section>
+
+            <BackupRestoreSection />
           </div>
         </div>
       </div>
     </SidebarInset>
+  );
+}
+
+function BackupRestoreSection() {
+  const [backupStatus, setBackupStatus] = useState<string | null>(null);
+  const [restoreStatus, setRestoreStatus] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
+
+  const handleExport = useCallback(async () => {
+    setIsExporting(true);
+    setBackupStatus(null);
+    try {
+      const { createBackup } = await import("../lib/backup");
+      await createBackup();
+      setBackupStatus("Backup exported successfully.");
+    } catch (err) {
+      setBackupStatus(
+        `Export failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+      );
+    } finally {
+      setIsExporting(false);
+    }
+  }, []);
+
+  const handleRestore = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    // Reset file input so the same file can be re-selected
+    event.target.value = "";
+
+    setIsRestoring(true);
+    setRestoreStatus(null);
+    try {
+      const { readBackupFile, restoreBackup } = await import("../lib/backup");
+      const backup = await readBackupFile(file);
+      const result = await restoreBackup(backup);
+
+      const parts: string[] = [];
+      if (result.projectsRestored > 0) {
+        parts.push(`${result.projectsRestored} project(s) restored`);
+      }
+      if (result.threadsRestored > 0) {
+        parts.push(`${result.threadsRestored} thread(s) restored`);
+      }
+      if (result.projectsSkipped > 0) {
+        parts.push(`${result.projectsSkipped} project(s) skipped (already exist)`);
+      }
+      if (result.threadsSkipped > 0) {
+        parts.push(`${result.threadsSkipped} thread(s) skipped (already exist)`);
+      }
+      if (result.localStorageRestored) {
+        parts.push("settings restored");
+      }
+
+      setRestoreStatus(
+        parts.length > 0
+          ? `Restore complete: ${parts.join(", ")}. Reload to apply fully.`
+          : "Nothing to restore (all items already exist).",
+      );
+    } catch (err) {
+      setRestoreStatus(
+        `Restore failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+      );
+    } finally {
+      setIsRestoring(false);
+    }
+  }, []);
+
+  return (
+    <section className="rounded-2xl border border-border bg-card p-5">
+      <div className="mb-4">
+        <h2 className="text-sm font-medium text-foreground">Data backup</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Export all your projects, threads, messages, and settings to a JSON file.
+          Restore from a backup if you need to recover lost data.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+          <div>
+            <p className="text-sm font-medium text-foreground">Export backup</p>
+            <p className="text-xs text-muted-foreground">
+              Download all projects, threads, conversation history, and settings as a JSON file.
+            </p>
+          </div>
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={isExporting}
+            onClick={handleExport}
+          >
+            {isExporting ? "Exporting..." : "Export"}
+          </Button>
+        </div>
+
+        {backupStatus ? (
+          <p className="text-xs text-muted-foreground">{backupStatus}</p>
+        ) : null}
+
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+          <div>
+            <p className="text-sm font-medium text-foreground">Restore from backup</p>
+            <p className="text-xs text-muted-foreground">
+              Re-create missing projects and threads from a previously exported backup file.
+              Existing data will not be modified.
+            </p>
+          </div>
+          <label>
+            <input
+              type="file"
+              accept=".json"
+              className="hidden"
+              onChange={handleRestore}
+              disabled={isRestoring}
+            />
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={isRestoring}
+              asChild
+            >
+              <span>{isRestoring ? "Restoring..." : "Restore"}</span>
+            </Button>
+          </label>
+        </div>
+
+        {restoreStatus ? (
+          <p className="text-xs text-muted-foreground">{restoreStatus}</p>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

@@ -179,12 +179,42 @@ it("parseAuthStatusFromOutput: JSON with authenticated=false is unauthenticated"
   assert.strictEqual(parsed.authStatus, "unauthenticated");
 });
 
-it("parseAuthStatusFromOutput: JSON without auth marker is warning", () => {
+it("parseAuthStatusFromOutput: JSON without auth marker but exit code 0 is ready", () => {
   const parsed = parseAuthStatusFromOutput({
     stdout: '[{"ok":true}]\n',
     stderr: "",
     code: 0,
   });
+  assert.strictEqual(parsed.status, "ready");
+  assert.strictEqual(parsed.authStatus, "authenticated");
+});
+
+it("parseAuthStatusFromOutput: JSON without auth marker and non-zero exit code is warning", () => {
+  const parsed = parseAuthStatusFromOutput({
+    stdout: '[{"ok":true}]\n',
+    stderr: "",
+    code: 1,
+  });
   assert.strictEqual(parsed.status, "warning");
   assert.strictEqual(parsed.authStatus, "unknown");
+});
+
+it("parseAuthStatusFromOutput: positive 'logged in' text is authenticated", () => {
+  const parsed = parseAuthStatusFromOutput({
+    stdout: "You are logged in as user@example.com\n",
+    stderr: "",
+    code: 0,
+  });
+  assert.strictEqual(parsed.status, "ready");
+  assert.strictEqual(parsed.authStatus, "authenticated");
+});
+
+it("parseAuthStatusFromOutput: 'authenticated' text is authenticated", () => {
+  const parsed = parseAuthStatusFromOutput({
+    stdout: "Authenticated successfully.\n",
+    stderr: "",
+    code: 0,
+  });
+  assert.strictEqual(parsed.status, "ready");
+  assert.strictEqual(parsed.authStatus, "authenticated");
 });

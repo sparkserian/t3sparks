@@ -23,7 +23,6 @@ import {
   ProviderInteractionMode,
 } from "@t3sparks/contracts";
 import {
-  CODEX_REASONING_EFFORT_OPTIONS,
   getDefaultModel,
   getDefaultReasoningEffort,
   getReasoningEffortOptions,
@@ -97,6 +96,7 @@ import {
   resolvePlanFollowUpSubmission,
 } from "../proposedPlan";
 import { truncateTitle } from "../truncateTitle";
+import { generateModelSwitchContextSummary } from "~/lib/modelSwitchSummary";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -813,14 +813,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const reasoningOptions = getReasoningEffortOptions(selectedProvider);
   const supportsReasoningEffort = reasoningOptions.length > 0;
   const selectedEffort = composerDraft.effort ?? getDefaultReasoningEffort(selectedProvider);
-  const selectedCodexEffort =
-    selectedProvider === "codex" && isCodexReasoningEffort(selectedEffort)
-      ? selectedEffort
-      : null;
-  const codexReasoningOptions =
-    selectedProvider === "codex"
-      ? reasoningOptions.filter(isCodexReasoningEffort)
-      : [];
   const selectedCodexFastModeEnabled =
     selectedProvider === "codex" ? composerDraft.codexFastMode : false;
   const selectedCustomInstructions = useMemo(
@@ -836,18 +828,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
       return undefined;
     }
     const codexOptions = {
-      ...(supportsReasoningEffort && selectedCodexEffort
-        ? { reasoningEffort: selectedCodexEffort }
-        : {}),
+      ...(supportsReasoningEffort && selectedEffort ? { reasoningEffort: selectedEffort } : {}),
       ...(selectedCodexFastModeEnabled ? { fastMode: true } : {}),
     };
     return Object.keys(codexOptions).length > 0 ? { codex: codexOptions } : undefined;
-  }, [
-    selectedCodexEffort,
-    selectedCodexFastModeEnabled,
-    selectedProvider,
-    supportsReasoningEffort,
-  ]);
+  }, [selectedCodexFastModeEnabled, selectedEffort, selectedProvider, supportsReasoningEffort]);
   const selectedModelForPicker = selectedModel;
   const modelOptionsByProvider = useMemo(
     () => getCustomModelOptionsByProvider(settings),
@@ -2773,6 +2758,24 @@ export default function ChatView({ threadId }: ChatViewProps) {
         });
       }
 
+      // Detect model switch and generate context summary before persisting the
+      // new model so we can reference the previous model name.
+      let modelSwitchSummary = "";
+      if (
+        isServerThread &&
+        selectedModel &&
+        serverThread &&
+        selectedModel !== serverThread.model &&
+        activeThread.messages.length > 0 &&
+        settings.enableModelSwitchSummary
+      ) {
+        modelSwitchSummary = generateModelSwitchContextSummary(
+          activeThread.messages,
+          serverThread.model,
+          selectedModel,
+        );
+      }
+
       if (isServerThread) {
         await persistThreadSettingsForNextTurn({
           threadId: threadIdForSend,
@@ -2785,6 +2788,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
       setSendPhase("sending-turn");
       const turnAttachments = await turnAttachmentsPromise;
+      const messageText = modelSwitchSummary
+        ? `${modelSwitchSummary}${trimmed || IMAGE_ONLY_BOOTSTRAP_PROMPT}`
+        : (trimmed || IMAGE_ONLY_BOOTSTRAP_PROMPT);
       await api.orchestration.dispatchCommand({
         type: "thread.turn.start",
         commandId: newCommandId(),
@@ -2792,7 +2798,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         message: {
           messageId: messageIdForSend,
           role: "user",
-          text: trimmed || IMAGE_ONLY_BOOTSTRAP_PROMPT,
+          text: messageText,
           attachments: turnAttachments,
         },
         model: selectedModel || undefined,
@@ -3969,13 +3975,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     onProviderModelChange={onProviderModelSelect}
                   />
 
-                  {selectedProvider === "codex" && selectedCodexEffort != null ? (
+                  {selectedProvider === "codex" && selectedEffort != null ? (
                     <>
                       <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
                       <CodexTraitsPicker
-                        effort={selectedCodexEffort}
+                        effort={selectedEffort}
                         fastModeEnabled={selectedCodexFastModeEnabled}
-                        options={codexReasoningOptions}
+                        options={reasoningOptions}
                         onEffortChange={onEffortSelect}
                         onFastModeChange={onCodexFastModeChange}
                       />
@@ -4457,6 +4463,28 @@ const ThreadErrorBanner = memo(function ThreadErrorBanner({ error }: { error: st
   );
 });
 
+const DISMISSED_PROVIDER_BANNER_KEY = "t3sparks:dismissed-provider-banner";
+
+function readDismissedProviderBannerKey(): string | null {
+  try {
+    return window.localStorage.getItem(DISMISSED_PROVIDER_BANNER_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeDismissedProviderBannerKey(key: string | null): void {
+  try {
+    if (key) {
+      window.localStorage.setItem(DISMISSED_PROVIDER_BANNER_KEY, key);
+    } else {
+      window.localStorage.removeItem(DISMISSED_PROVIDER_BANNER_KEY);
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 const ProviderHealthBanner = memo(function ProviderHealthBanner({
   status,
 }: {
@@ -4466,13 +4494,21 @@ const ProviderHealthBanner = memo(function ProviderHealthBanner({
     status && status.status !== "ready"
       ? `${status.provider}:${status.status}:${status.message ?? ""}`
       : null;
-  const [dismissedStatusKey, setDismissedStatusKey] = useState<string | null>(null);
+  const [dismissedStatusKey, setDismissedStatusKey] = useState<string | null>(
+    () => readDismissedProviderBannerKey(),
+  );
 
   useEffect(() => {
     if (!statusKey || (dismissedStatusKey !== null && dismissedStatusKey !== statusKey)) {
       setDismissedStatusKey(null);
+      writeDismissedProviderBannerKey(null);
     }
   }, [dismissedStatusKey, statusKey]);
+
+  const handleDismiss = useCallback(() => {
+    setDismissedStatusKey(statusKey);
+    writeDismissedProviderBannerKey(statusKey);
+  }, [statusKey]);
 
   if (!status || status.status === "ready" || dismissedStatusKey === statusKey) {
     return null;
@@ -4496,7 +4532,7 @@ const ProviderHealthBanner = memo(function ProviderHealthBanner({
         <AlertAction>
           <Button
             aria-label="Dismiss provider status"
-            onClick={() => setDismissedStatusKey(statusKey)}
+            onClick={handleDismiss}
             size="icon-xs"
             variant="ghost"
           >
@@ -5688,7 +5724,7 @@ function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): o
   label: string;
   available: true;
 } {
-  return option.available && option.value !== "cursor";
+  return option.available && option.value !== "claudeCode";
 }
 
 const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter(isAvailableProviderOption);
@@ -5699,12 +5735,10 @@ const COMING_SOON_PROVIDER_OPTIONS = [
 
 function getCustomModelOptionsByProvider(settings: {
   customCodexModels: readonly string[];
-  customClaudeModels: readonly string[];
   customGeminiModels: readonly string[];
 }): Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>> {
   return {
     codex: getAppModelOptions("codex", settings.customCodexModels),
-    claudeAgent: getAppModelOptions("claudeAgent", settings.customClaudeModels),
     gemini: getAppModelOptions("gemini", settings.customGeminiModels),
   };
 }
@@ -5712,14 +5746,11 @@ function getCustomModelOptionsByProvider(settings: {
 function getCustomModelsForProvider(
   settings: {
     customCodexModels: readonly string[];
-    customClaudeModels: readonly string[];
     customGeminiModels: readonly string[];
   },
   provider: ProviderKind,
 ): readonly string[] {
   switch (provider) {
-    case "claudeAgent":
-      return settings.customClaudeModels;
     case "gemini":
       return settings.customGeminiModels;
     case "codex":
@@ -5730,8 +5761,8 @@ function getCustomModelsForProvider(
 
 const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   codex: OpenAI,
-  claudeAgent: ClaudeAI,
   gemini: Gemini,
+  claudeCode: ClaudeAI,
   cursor: CursorIcon,
 };
 
@@ -5742,13 +5773,6 @@ function normalizeActiveComposerProvider(
     return "codex";
   }
   return provider ?? "codex";
-}
-
-function isCodexReasoningEffort(value: unknown): value is CodexReasoningEffort {
-  return (
-    typeof value === "string" &&
-    CODEX_REASONING_EFFORT_OPTIONS.includes(value as CodexReasoningEffort)
-  );
 }
 
 function resolveModelForProviderPicker(
@@ -5887,7 +5911,10 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             <MenuItem key={option.value} disabled>
               <OptionIcon
                 aria-hidden="true"
-                className="size-4 shrink-0 text-muted-foreground/85 opacity-80"
+                className={cn(
+                  "size-4 shrink-0 opacity-80",
+                  option.value === "claudeCode" ? "" : "text-muted-foreground/85",
+                )}
               />
               <span>{option.label}</span>
               <span className="ms-auto text-[11px] text-muted-foreground/80 uppercase tracking-[0.08em]">
