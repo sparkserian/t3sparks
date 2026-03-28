@@ -4,6 +4,7 @@ import { assertFailure } from "@effect/vitest/utils";
 
 import { Effect, Layer, Stream } from "effect";
 
+import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { CodexAdapter, CodexAdapterShape } from "../Services/CodexAdapter.ts";
 import { GeminiAdapter, type GeminiAdapterShape } from "../Services/GeminiAdapter.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
@@ -45,12 +46,30 @@ const fakeGeminiAdapter: GeminiAdapterShape = {
   streamEvents: Stream.empty,
 };
 
+const fakeClaudeAdapter: ClaudeAdapterShape = {
+  provider: "claudeAgent",
+  capabilities: { sessionModelSwitch: "restart-session" },
+  startSession: vi.fn(),
+  sendTurn: vi.fn(),
+  interruptTurn: vi.fn(),
+  respondToRequest: vi.fn(),
+  respondToUserInput: vi.fn(),
+  stopSession: vi.fn(),
+  listSessions: vi.fn(),
+  hasSession: vi.fn(),
+  readThread: vi.fn(),
+  rollbackThread: vi.fn(),
+  stopAll: vi.fn(),
+  streamEvents: Stream.empty,
+};
+
 const layer = it.layer(
   Layer.mergeAll(
     Layer.provide(
       ProviderAdapterRegistryLive,
       Layer.mergeAll(
         Layer.succeed(CodexAdapter, fakeCodexAdapter),
+        Layer.succeed(ClaudeAdapter, fakeClaudeAdapter),
         Layer.succeed(GeminiAdapter, fakeGeminiAdapter),
       ),
     ),
@@ -64,11 +83,13 @@ layer("ProviderAdapterRegistryLive", (it) => {
       const registry = yield* ProviderAdapterRegistry;
       const codex = yield* registry.getByProvider("codex");
       assert.equal(codex, fakeCodexAdapter);
+      const claude = yield* registry.getByProvider("claudeAgent");
+      assert.equal(claude, fakeClaudeAdapter);
       const gemini = yield* registry.getByProvider("gemini");
       assert.equal(gemini, fakeGeminiAdapter);
 
       const providers = yield* registry.listProviders();
-      assert.deepEqual(providers, ["codex", "gemini"]);
+      assert.deepEqual(providers, ["codex", "claudeAgent", "gemini"]);
     }),
   );
 

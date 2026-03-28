@@ -56,6 +56,13 @@ const MODEL_PROVIDER_SETTINGS: Array<{
     example: "gpt-6.7-codex-ultra-preview",
   },
   {
+    provider: "claudeAgent",
+    title: "Claude Code",
+    description: "Save additional Claude model slugs for the picker and `/model` command.",
+    placeholder: "your-claude-model-slug",
+    example: "claude-sonnet-5-preview",
+  },
+  {
     provider: "gemini",
     title: "Gemini",
     description: "Save additional Gemini model slugs for the picker and `/model` command.",
@@ -71,6 +78,8 @@ function getCustomModelsForProvider(
   switch (provider) {
     case "codex":
       return settings.customCodexModels;
+    case "claudeAgent":
+      return settings.customClaudeModels;
     case "gemini":
       return settings.customGeminiModels;
     default:
@@ -85,6 +94,8 @@ function getDefaultCustomModelsForProvider(
   switch (provider) {
     case "codex":
       return defaults.customCodexModels;
+    case "claudeAgent":
+      return defaults.customClaudeModels;
     case "gemini":
       return defaults.customGeminiModels;
     default:
@@ -96,6 +107,8 @@ function patchCustomModels(provider: ProviderKind, models: string[]) {
   switch (provider) {
     case "codex":
       return { customCodexModels: models };
+    case "claudeAgent":
+      return { customClaudeModels: models };
     case "gemini":
       return { customGeminiModels: models };
     default:
@@ -113,6 +126,7 @@ function SettingsRouteView() {
     Record<ProviderKind, string>
   >({
     codex: "",
+    claudeAgent: "",
     gemini: "",
   });
   const [customModelErrorByProvider, setCustomModelErrorByProvider] = useState<

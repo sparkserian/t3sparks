@@ -23,6 +23,7 @@ import {
   ProviderInteractionMode,
 } from "@t3sparks/contracts";
 import {
+  CODEX_REASONING_EFFORT_OPTIONS,
   getDefaultModel,
   getDefaultReasoningEffort,
   getReasoningEffortOptions,
@@ -812,6 +813,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const reasoningOptions = getReasoningEffortOptions(selectedProvider);
   const supportsReasoningEffort = reasoningOptions.length > 0;
   const selectedEffort = composerDraft.effort ?? getDefaultReasoningEffort(selectedProvider);
+  const selectedCodexEffort =
+    selectedProvider === "codex" && isCodexReasoningEffort(selectedEffort)
+      ? selectedEffort
+      : null;
+  const codexReasoningOptions =
+    selectedProvider === "codex"
+      ? reasoningOptions.filter(isCodexReasoningEffort)
+      : [];
   const selectedCodexFastModeEnabled =
     selectedProvider === "codex" ? composerDraft.codexFastMode : false;
   const selectedCustomInstructions = useMemo(
@@ -827,11 +836,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
       return undefined;
     }
     const codexOptions = {
-      ...(supportsReasoningEffort && selectedEffort ? { reasoningEffort: selectedEffort } : {}),
+      ...(supportsReasoningEffort && selectedCodexEffort
+        ? { reasoningEffort: selectedCodexEffort }
+        : {}),
       ...(selectedCodexFastModeEnabled ? { fastMode: true } : {}),
     };
     return Object.keys(codexOptions).length > 0 ? { codex: codexOptions } : undefined;
-  }, [selectedCodexFastModeEnabled, selectedEffort, selectedProvider, supportsReasoningEffort]);
+  }, [
+    selectedCodexEffort,
+    selectedCodexFastModeEnabled,
+    selectedProvider,
+    supportsReasoningEffort,
+  ]);
   const selectedModelForPicker = selectedModel;
   const modelOptionsByProvider = useMemo(
     () => getCustomModelOptionsByProvider(settings),
@@ -3953,13 +3969,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     onProviderModelChange={onProviderModelSelect}
                   />
 
-                  {selectedProvider === "codex" && selectedEffort != null ? (
+                  {selectedProvider === "codex" && selectedCodexEffort != null ? (
                     <>
                       <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
                       <CodexTraitsPicker
-                        effort={selectedEffort}
+                        effort={selectedCodexEffort}
                         fastModeEnabled={selectedCodexFastModeEnabled}
-                        options={reasoningOptions}
+                        options={codexReasoningOptions}
                         onEffortChange={onEffortSelect}
                         onFastModeChange={onCodexFastModeChange}
                       />
@@ -5672,7 +5688,7 @@ function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): o
   label: string;
   available: true;
 } {
-  return option.available && option.value !== "claudeCode";
+  return option.available && option.value !== "cursor";
 }
 
 const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter(isAvailableProviderOption);
@@ -5683,10 +5699,12 @@ const COMING_SOON_PROVIDER_OPTIONS = [
 
 function getCustomModelOptionsByProvider(settings: {
   customCodexModels: readonly string[];
+  customClaudeModels: readonly string[];
   customGeminiModels: readonly string[];
 }): Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>> {
   return {
     codex: getAppModelOptions("codex", settings.customCodexModels),
+    claudeAgent: getAppModelOptions("claudeAgent", settings.customClaudeModels),
     gemini: getAppModelOptions("gemini", settings.customGeminiModels),
   };
 }
@@ -5694,11 +5712,14 @@ function getCustomModelOptionsByProvider(settings: {
 function getCustomModelsForProvider(
   settings: {
     customCodexModels: readonly string[];
+    customClaudeModels: readonly string[];
     customGeminiModels: readonly string[];
   },
   provider: ProviderKind,
 ): readonly string[] {
   switch (provider) {
+    case "claudeAgent":
+      return settings.customClaudeModels;
     case "gemini":
       return settings.customGeminiModels;
     case "codex":
@@ -5709,8 +5730,8 @@ function getCustomModelsForProvider(
 
 const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   codex: OpenAI,
+  claudeAgent: ClaudeAI,
   gemini: Gemini,
-  claudeCode: ClaudeAI,
   cursor: CursorIcon,
 };
 
@@ -5721,6 +5742,13 @@ function normalizeActiveComposerProvider(
     return "codex";
   }
   return provider ?? "codex";
+}
+
+function isCodexReasoningEffort(value: unknown): value is CodexReasoningEffort {
+  return (
+    typeof value === "string" &&
+    CODEX_REASONING_EFFORT_OPTIONS.includes(value as CodexReasoningEffort)
+  );
 }
 
 function resolveModelForProviderPicker(
@@ -5859,10 +5887,7 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             <MenuItem key={option.value} disabled>
               <OptionIcon
                 aria-hidden="true"
-                className={cn(
-                  "size-4 shrink-0 opacity-80",
-                  option.value === "claudeCode" ? "" : "text-muted-foreground/85",
-                )}
+                className="size-4 shrink-0 text-muted-foreground/85 opacity-80"
               />
               <span>{option.label}</span>
               <span className="ms-auto text-[11px] text-muted-foreground/80 uppercase tracking-[0.08em]">

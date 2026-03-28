@@ -543,25 +543,25 @@ describe("isLatestTurnSettled", () => {
 });
 
 describe("PROVIDER_OPTIONS", () => {
-  it("includes Gemini as an available provider and keeps placeholders for upcoming providers", () => {
+  it("includes Claude as an available provider and keeps placeholders for upcoming providers", () => {
     const gemini = PROVIDER_OPTIONS.find((option) => option.value === "gemini");
-    const claude = PROVIDER_OPTIONS.find((option) => option.value === "claudeCode");
+    const claude = PROVIDER_OPTIONS.find((option) => option.value === "claudeAgent");
     const cursor = PROVIDER_OPTIONS.find((option) => option.value === "cursor");
     expect(PROVIDER_OPTIONS).toEqual([
       { value: "codex", label: "Codex", available: true },
-      { value: "gemini", label: "Gemini", available: true },
-      { value: "claudeCode", label: "Claude Code", available: false },
+      { value: "claudeAgent", label: "Claude Code", available: true },
+      { value: "gemini", label: "Gemini", available: false },
       { value: "cursor", label: "Cursor", available: false },
     ]);
     expect(gemini).toEqual({
       value: "gemini",
       label: "Gemini",
-      available: true,
+      available: false,
     });
     expect(claude).toEqual({
-      value: "claudeCode",
+      value: "claudeAgent",
       label: "Claude Code",
-      available: false,
+      available: true,
     });
     expect(cursor).toEqual({
       value: "cursor",

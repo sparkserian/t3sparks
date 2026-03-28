@@ -7,8 +7,7 @@ import {
   type OrchestrationSessionStatus,
 } from "@t3sparks/contracts";
 import {
-  getModelOptions,
-  normalizeModelSlug,
+  inferProviderForModel,
   resolveModelSlug,
   resolveModelSlugForProvider,
 } from "@t3sparks/shared/model";
@@ -143,31 +142,24 @@ function toLegacySessionStatus(
 }
 
 function toLegacyProvider(providerName: string | null): ProviderKind {
-  if (providerName === "codex" || providerName === "gemini") {
+  if (providerName === "codex" || providerName === "claudeAgent" || providerName === "gemini") {
     return providerName;
   }
   return "codex";
 }
 
-const CODEX_MODEL_SLUGS = new Set<string>(getModelOptions("codex").map((option) => option.slug));
-const GEMINI_MODEL_SLUGS = new Set<string>(getModelOptions("gemini").map((option) => option.slug));
-
 function inferProviderForThreadModel(input: {
   readonly model: string;
   readonly sessionProviderName: string | null;
 }): ProviderKind {
-  if (input.sessionProviderName === "codex" || input.sessionProviderName === "gemini") {
+  if (
+    input.sessionProviderName === "codex" ||
+    input.sessionProviderName === "claudeAgent" ||
+    input.sessionProviderName === "gemini"
+  ) {
     return input.sessionProviderName;
   }
-  const normalizedGemini = normalizeModelSlug(input.model, "gemini");
-  if (normalizedGemini && GEMINI_MODEL_SLUGS.has(normalizedGemini)) {
-    return "gemini";
-  }
-  const normalizedCodex = normalizeModelSlug(input.model, "codex");
-  if (normalizedCodex && CODEX_MODEL_SLUGS.has(normalizedCodex)) {
-    return "codex";
-  }
-  return "codex";
+  return inferProviderForModel(input.model, "codex");
 }
 
 function resolveWsHttpOrigin(): string {
