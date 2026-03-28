@@ -827,8 +827,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
     if (selectedProvider !== "codex") {
       return undefined;
     }
+    const codexEffort = selectedEffort as CodexReasoningEffort | undefined;
     const codexOptions = {
-      ...(supportsReasoningEffort && selectedEffort ? { reasoningEffort: selectedEffort } : {}),
+      ...(supportsReasoningEffort && codexEffort ? { reasoningEffort: codexEffort } : {}),
       ...(selectedCodexFastModeEnabled ? { fastMode: true } : {}),
     };
     return Object.keys(codexOptions).length > 0 ? { codex: codexOptions } : undefined;
@@ -3979,9 +3980,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     <>
                       <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
                       <CodexTraitsPicker
-                        effort={selectedEffort}
+                        effort={selectedEffort as CodexReasoningEffort}
                         fastModeEnabled={selectedCodexFastModeEnabled}
-                        options={reasoningOptions}
+                        options={reasoningOptions as ReadonlyArray<CodexReasoningEffort>}
                         onEffortChange={onEffortSelect}
                         onFastModeChange={onCodexFastModeChange}
                       />
@@ -5724,7 +5725,7 @@ function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): o
   label: string;
   available: true;
 } {
-  return option.available && option.value !== "claudeCode";
+  return option.available && option.value !== "claudeAgent";
 }
 
 const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter(isAvailableProviderOption);
@@ -5739,6 +5740,7 @@ function getCustomModelOptionsByProvider(settings: {
 }): Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>> {
   return {
     codex: getAppModelOptions("codex", settings.customCodexModels),
+    claudeAgent: getAppModelOptions("claudeAgent", []),
     gemini: getAppModelOptions("gemini", settings.customGeminiModels),
   };
 }
@@ -5761,8 +5763,8 @@ function getCustomModelsForProvider(
 
 const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   codex: OpenAI,
+  claudeAgent: ClaudeAI,
   gemini: Gemini,
-  claudeCode: ClaudeAI,
   cursor: CursorIcon,
 };
 
@@ -5913,7 +5915,7 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                 aria-hidden="true"
                 className={cn(
                   "size-4 shrink-0 opacity-80",
-                  option.value === "claudeCode" ? "" : "text-muted-foreground/85",
+                  option.value === "claudeAgent" ? "" : "text-muted-foreground/85",
                 )}
               />
               <span>{option.label}</span>

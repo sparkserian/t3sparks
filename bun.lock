@@ -14,7 +14,7 @@
     },
     "apps/desktop": {
       "name": "@t3sparks/desktop",
-      "version": "0.0.10",
+      "version": "0.0.12",
       "dependencies": {
         "effect": "catalog:",
         "electron": "40.6.0",
@@ -43,7 +43,7 @@
     },
     "apps/server": {
       "name": "t3sparks",
-      "version": "0.0.10",
+      "version": "0.0.12",
       "bin": {
         "t3sparks": "./dist/index.mjs",
       },
@@ -73,7 +73,7 @@
     },
     "apps/web": {
       "name": "@t3sparks/web",
-      "version": "0.0.10",
+      "version": "0.0.12",
       "dependencies": {
         "@base-ui/react": "^1.2.0",
         "@lexical/react": "^0.41.0",
@@ -117,7 +117,7 @@
     },
     "packages/contracts": {
       "name": "@t3sparks/contracts",
-      "version": "0.0.10",
+      "version": "0.0.12",
       "dependencies": {
         "effect": "catalog:",
       },

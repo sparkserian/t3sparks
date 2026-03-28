@@ -113,6 +113,7 @@ function SettingsRouteView() {
     Record<ProviderKind, string>
   >({
     codex: "",
+    claudeAgent: "",
     gemini: "",
   });
   const [customModelErrorByProvider, setCustomModelErrorByProvider] = useState<
@@ -786,7 +787,7 @@ function BackupRestoreSection() {
               Existing data will not be modified.
             </p>
           </div>
-          <label>
+          <label className="cursor-pointer">
             <input
               type="file"
               accept=".json"
@@ -794,14 +795,9 @@ function BackupRestoreSection() {
               onChange={handleRestore}
               disabled={isRestoring}
             />
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={isRestoring}
-              asChild
-            >
-              <span>{isRestoring ? "Restoring..." : "Restore"}</span>
-            </Button>
+            <span className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-xs font-medium border border-border bg-background shadow-sm hover:bg-accent hover:text-accent-foreground h-7 px-2">
+              {isRestoring ? "Restoring..." : "Restore"}
+            </span>
           </label>
         </div>
 
