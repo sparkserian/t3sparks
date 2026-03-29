@@ -243,6 +243,5 @@ jobs:
           overwrite_files: true
           files: |
             release-publish/*.AppImage
-            release-publish/*.blockmap
             release-publish/latest-linux*.yml
           fail_on_unmatched_files: true
