@@ -1,6 +1,6 @@
 {
   "name": "@t3sparks/contracts",
-  "version": "0.0.16",
+  "version": "0.0.17",
   "private": true,
   "files": [
     "dist"
