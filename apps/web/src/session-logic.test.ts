@@ -9,6 +9,7 @@ import {
   deriveTimelineEntries,
   deriveWorkLogEntries,
   findLatestProposedPlan,
+  getSelectableProviderOptions,
   hasToolActivityForTurn,
   isLatestTurnSettled,
 } from "./session-logic";
@@ -568,5 +569,12 @@ describe("PROVIDER_OPTIONS", () => {
       label: "Cursor",
       available: false,
     });
+  });
+
+  it("keeps Claude in the selectable provider list", () => {
+    expect(getSelectableProviderOptions()).toEqual([
+      { value: "codex", label: "Codex", available: true },
+      { value: "claudeAgent", label: "Claude Code", available: true },
+    ]);
   });
 });

@@ -23,6 +23,22 @@ export const PROVIDER_OPTIONS: Array<{
   { value: "cursor", label: "Cursor", available: false },
 ];
 
+export type SelectableProviderOption = {
+  value: ProviderKind;
+  label: string;
+  available: true;
+};
+
+export function isSelectableProviderOption(
+  option: (typeof PROVIDER_OPTIONS)[number],
+): option is SelectableProviderOption {
+  return option.available && option.value !== "cursor";
+}
+
+export function getSelectableProviderOptions() {
+  return PROVIDER_OPTIONS.filter(isSelectableProviderOption);
+}
+
 export interface WorkLogEntry {
   id: string;
   createdAt: string;

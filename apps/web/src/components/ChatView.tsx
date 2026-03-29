@@ -70,6 +70,7 @@ import {
   deriveTimelineEntries,
   deriveActivePlanState,
   findLatestProposedPlan,
+  getSelectableProviderOptions,
   type PendingApproval,
   type PendingUserInput,
   type ProviderPickerKind,
@@ -5724,15 +5725,7 @@ const MessagesTimeline = memo(function MessagesTimeline({
   );
 });
 
-function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {
-  value: ProviderKind;
-  label: string;
-  available: true;
-} {
-  return option.available && option.value !== "claudeAgent";
-}
-
-const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter(isAvailableProviderOption);
+const AVAILABLE_PROVIDER_OPTIONS = getSelectableProviderOptions();
 const UNAVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter((option) => !option.available);
 const COMING_SOON_PROVIDER_OPTIONS = [
   { id: "opencode", label: "OpenCode", icon: OpenCodeIcon },
