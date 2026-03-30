@@ -1,6 +1,6 @@
 {
   "name": "t3sparks",
-  "version": "0.0.17",
+  "version": "0.0.18",
   "repository": {
     "type": "git",
     "url": "https://github.com/sparkserian/t3sparks",
@@ -17,7 +17,7 @@
     "dev": "bun run src/index.ts",
     "build": "bun run scripts/cli.ts build",
     "start": "node dist/index.mjs",
-    "prepare": "effect-language-service patch",
+    "prepare": "node ../../scripts/effect-language-service-prepare.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
