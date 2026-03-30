@@ -11,8 +11,15 @@ import { QueryClient, useQueryClient } from "@tanstack/react-query";
 
 import { APP_DISPLAY_NAME } from "../branding";
 import { Button } from "../components/ui/button";
-import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
-import { serverConfigQueryOptions, serverQueryKeys } from "../lib/serverReactQuery";
+import {
+  AnchoredToastProvider,
+  ToastProvider,
+  toastManager,
+} from "../components/ui/toast";
+import {
+  serverConfigQueryOptions,
+  serverQueryKeys,
+} from "../lib/serverReactQuery";
 import {
   openResolvedLinkTarget,
   resolveLinkTarget,
@@ -22,6 +29,7 @@ import {
 import { readNativeApi } from "../nativeApi";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useStore } from "../store";
+import { useDesktopUpdateNotifications } from "../hooks/useDesktopUpdateNotifications";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { preferredTerminalEditor } from "../terminal-links";
 import { terminalRunningSubprocessFromEvent } from "../terminalActivity";
@@ -40,6 +48,8 @@ export const Route = createRootRouteWithContext<{
 });
 
 function RootRouteView() {
+  useDesktopUpdateNotifications();
+
   if (!readNativeApi()) {
     return (
       <div className="flex h-screen flex-col bg-background text-foreground">
@@ -82,13 +92,19 @@ function RootRouteErrorView({ error, reset }: ErrorComponentProps) {
         <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">
           Something went wrong.
         </h1>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{message}</p>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+          {message}
+        </p>
 
         <div className="mt-5 flex flex-wrap gap-2">
           <Button size="sm" onClick={() => reset()}>
             Try again
           </Button>
-          <Button size="sm" variant="outline" onClick={() => window.location.reload()}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => window.location.reload()}
+          >
             Reload app
           </Button>
         </div>
@@ -143,7 +159,9 @@ function EventRouter() {
   );
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
   const pathnameRef = useRef(pathname);
   const lastConfigIssuesSignatureRef = useRef<string | null>(null);
   const handledBootstrapThreadIdRef = useRef<string | null>(null);
@@ -199,7 +217,10 @@ function EventRouter() {
         return;
       }
       latestSequence = event.sequence;
-      if (event.type === "thread.turn-diff-completed" || event.type === "thread.reverted") {
+      if (
+        event.type === "thread.turn-diff-completed" ||
+        event.type === "thread.reverted"
+      ) {
         void queryClient.invalidateQueries({ queryKey: providerQueryKeys.all });
       }
       void syncSnapshot();
@@ -250,8 +271,12 @@ function EventRouter() {
       }
       lastConfigIssuesSignatureRef.current = signature;
 
-      void queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() });
-      const issue = payload.issues.find((entry) => entry.kind.startsWith("keybindings."));
+      void queryClient.invalidateQueries({
+        queryKey: serverQueryKeys.config(),
+      });
+      const issue = payload.issues.find((entry) =>
+        entry.kind.startsWith("keybindings."),
+      );
       if (!issue) {
         toastManager.add({
           type: "success",
@@ -271,14 +296,19 @@ function EventRouter() {
             void queryClient
               .ensureQueryData(serverConfigQueryOptions())
               .then((config) =>
-                api.shell.openInEditor(config.keybindingsConfigPath, preferredTerminalEditor()),
+                api.shell.openInEditor(
+                  config.keybindingsConfigPath,
+                  preferredTerminalEditor(),
+                ),
               )
               .catch((error) => {
                 toastManager.add({
                   type: "error",
                   title: "Unable to open keybindings file",
                   description:
-                    error instanceof Error ? error.message : "Unknown error opening file.",
+                    error instanceof Error
+                      ? error.message
+                      : "Unknown error opening file.",
                 });
               });
           },
@@ -305,7 +335,9 @@ function EventRouter() {
 
 type GlobalLinkMenuAction = "open" | "reveal" | "copy-link" | "copy-selection";
 
-function findClosestAnchor(target: EventTarget | null): HTMLAnchorElement | null {
+function findClosestAnchor(
+  target: EventTarget | null,
+): HTMLAnchorElement | null {
   if (!(target instanceof Element)) {
     return null;
   }
@@ -314,7 +346,10 @@ function findClosestAnchor(target: EventTarget | null): HTMLAnchorElement | null
 }
 
 async function copyTextToClipboard(text: string): Promise<void> {
-  if (typeof navigator === "undefined" || navigator.clipboard?.writeText === undefined) {
+  if (
+    typeof navigator === "undefined" ||
+    navigator.clipboard?.writeText === undefined
+  ) {
     throw new Error("Clipboard API unavailable.");
   }
   await navigator.clipboard.writeText(text);
@@ -378,7 +413,10 @@ function GlobalLinkHandlers() {
       toastManager.add({
         type: "error",
         title,
-        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        description:
+          error instanceof Error
+            ? error.message
+            : "An unexpected error occurred.",
       });
     };
 
@@ -406,7 +444,9 @@ function GlobalLinkHandlers() {
       void openTarget(target).catch((error) => {
         handleLinkError(
           error,
-          target.kind === "external" ? "Unable to open link" : "Unable to open path",
+          target.kind === "external"
+            ? "Unable to open link"
+            : "Unable to open path",
         );
       });
     };
@@ -433,7 +473,10 @@ function GlobalLinkHandlers() {
       event.stopPropagation();
 
       const selectionText = window.getSelection()?.toString().trim() ?? "";
-      const menuItems = buildGlobalLinkMenuItems(target, selectionText.length > 0);
+      const menuItems = buildGlobalLinkMenuItems(
+        target,
+        selectionText.length > 0,
+      );
       void api.contextMenu
         .show(menuItems, { x: event.clientX, y: event.clientY })
         .then((action) => {
@@ -445,7 +488,9 @@ function GlobalLinkHandlers() {
             return openTarget(target).catch((error) => {
               handleLinkError(
                 error,
-                target.kind === "external" ? "Unable to open link" : "Unable to open path",
+                target.kind === "external"
+                  ? "Unable to open link"
+                  : "Unable to open path",
               );
             });
           }
@@ -469,7 +514,9 @@ function GlobalLinkHandlers() {
             return copyTextToClipboard(value).catch((error) => {
               handleLinkError(
                 error,
-                target.kind === "path" ? "Unable to copy path" : "Unable to copy link",
+                target.kind === "path"
+                  ? "Unable to copy path"
+                  : "Unable to copy link",
               );
             });
           }

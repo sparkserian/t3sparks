@@ -23,7 +23,11 @@ import { isElectron } from "../env";
 import { APP_STAGE_LABEL } from "../branding";
 import { newCommandId, newProjectId, newThreadId } from "../lib/utils";
 import { useStore } from "../store";
-import { isChatNewLocalShortcut, isChatNewShortcut, shortcutLabelForCommand } from "../keybindings";
+import {
+  isChatNewLocalShortcut,
+  isChatNewShortcut,
+  shortcutLabelForCommand,
+} from "../keybindings";
 import { type Thread } from "../types";
 import { derivePendingApprovals } from "../session-logic";
 import { gitStatusQueryOptions } from "../lib/gitReactQuery";
@@ -32,8 +36,14 @@ import { useDesktopUpdate } from "../hooks/useDesktopUpdate";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { requestOpenOnboarding } from "../onboarding";
 import { readNativeApi } from "../nativeApi";
-import { type DraftThreadEnvMode, useComposerDraftStore } from "../composerDraftStore";
-import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
+import {
+  type DraftThreadEnvMode,
+  useComposerDraftStore,
+} from "../composerDraftStore";
+import {
+  selectThreadTerminalState,
+  useTerminalStateStore,
+} from "../terminalStateStore";
 import { toastManager } from "./ui/toast";
 import { NewProjectDialog } from "./NewProjectDialog";
 import {
@@ -45,7 +55,11 @@ import {
   shouldShowDesktopUpdateButton,
   shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "./ui/collapsible";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
   SidebarContent,
@@ -68,7 +82,10 @@ const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const THREAD_PREVIEW_LIMIT = 6;
 
 async function copyTextToClipboard(text: string): Promise<void> {
-  if (typeof navigator === "undefined" || navigator.clipboard?.writeText === undefined) {
+  if (
+    typeof navigator === "undefined" ||
+    navigator.clipboard?.writeText === undefined
+  ) {
     throw new Error("Clipboard API unavailable.");
   }
   await navigator.clipboard.writeText(text);
@@ -117,7 +134,10 @@ function hasUnseenCompletion(thread: Thread): boolean {
   return completedAt > lastVisitedAt;
 }
 
-function threadStatusPill(thread: Thread, hasPendingApprovals: boolean): ThreadStatusPill | null {
+function threadStatusPill(
+  thread: Thread,
+  hasPendingApprovals: boolean,
+): ThreadStatusPill | null {
   if (hasPendingApprovals) {
     return {
       label: "Pending Approval",
@@ -241,12 +261,16 @@ function getServerHttpOrigin(): string {
 const serverHttpOrigin = getServerHttpOrigin();
 
 function ProjectFavicon({ cwd }: { cwd: string }) {
-  const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "loaded" | "error">(
+    "loading",
+  );
 
   const src = `${serverHttpOrigin}/api/project-favicon?cwd=${encodeURIComponent(cwd)}`;
 
   if (status === "error") {
-    return <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/50" />;
+    return (
+      <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/50" />
+    );
   }
 
   return (
@@ -265,15 +289,25 @@ export default function Sidebar() {
   const threads = useStore((store) => store.threads);
   const markThreadUnread = useStore((store) => store.markThreadUnread);
   const toggleProject = useStore((store) => store.toggleProject);
-  const clearComposerDraftForThread = useComposerDraftStore((store) => store.clearThreadDraft);
+  const clearComposerDraftForThread = useComposerDraftStore(
+    (store) => store.clearThreadDraft,
+  );
   const getDraftThreadByProjectId = useComposerDraftStore(
     (store) => store.getDraftThreadByProjectId,
   );
   const getDraftThread = useComposerDraftStore((store) => store.getDraftThread);
-  const terminalStateByThreadId = useTerminalStateStore((state) => state.terminalStateByThreadId);
-  const clearTerminalState = useTerminalStateStore((state) => state.clearTerminalState);
-  const setProjectDraftThreadId = useComposerDraftStore((store) => store.setProjectDraftThreadId);
-  const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
+  const terminalStateByThreadId = useTerminalStateStore(
+    (state) => state.terminalStateByThreadId,
+  );
+  const clearTerminalState = useTerminalStateStore(
+    (state) => state.clearTerminalState,
+  );
+  const setProjectDraftThreadId = useComposerDraftStore(
+    (store) => store.setProjectDraftThreadId,
+  );
+  const setDraftThreadContext = useComposerDraftStore(
+    (store) => store.setDraftThreadContext,
+  );
   const clearProjectDraftThreadId = useComposerDraftStore(
     (store) => store.clearProjectDraftThreadId,
   );
@@ -281,7 +315,8 @@ export default function Sidebar() {
   const { settings: appSettings } = useAppSettings();
   const routeThreadId = useParams({
     strict: false,
-    select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
+    select: (params) =>
+      params.threadId ? ThreadId.makeUnsafe(params.threadId) : null,
   });
   const { data: keybindings = EMPTY_KEYBINDINGS } = useQuery({
     ...serverConfigQueryOptions(),
@@ -292,11 +327,12 @@ export default function Sidebar() {
   const [newCwd, setNewCwd] = useState("");
   const [isPickingFolder, setIsPickingFolder] = useState(false);
   const [isAddingProject, setIsAddingProject] = useState(false);
-  const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(null);
+  const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(
+    null,
+  );
   const [renamingTitle, setRenamingTitle] = useState("");
-  const [expandedThreadListsByProject, setExpandedThreadListsByProject] = useState<
-    ReadonlySet<ProjectId>
-  >(() => new Set());
+  const [expandedThreadListsByProject, setExpandedThreadListsByProject] =
+    useState<ReadonlySet<ProjectId>>(() => new Set());
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
   const {
@@ -304,8 +340,6 @@ export default function Sidebar() {
     downloadUpdate,
     installUpdate,
   } = useDesktopUpdate();
-  const announcedAvailableUpdateVersionsRef = useRef(new Set<string>());
-  const announcedDownloadedUpdateVersionsRef = useRef(new Set<string>());
   const pendingApprovalByThreadId = useMemo(() => {
     const map = new Map<ThreadId, boolean>();
     for (const thread of threads) {
@@ -314,7 +348,8 @@ export default function Sidebar() {
     return map;
   }, [threads]);
   const projectCwdById = useMemo(
-    () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
+    () =>
+      new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
   );
   const threadGitTargets = useMemo(
@@ -322,7 +357,8 @@ export default function Sidebar() {
       threads.map((thread) => ({
         threadId: thread.id,
         branch: thread.branch,
-        cwd: thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null,
+        cwd:
+          thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null,
       })),
     [projectCwdById, threads],
   );
@@ -359,7 +395,9 @@ export default function Sidebar() {
     for (const target of threadGitTargets) {
       const status = target.cwd ? statusByCwd.get(target.cwd) : undefined;
       const branchMatches =
-        target.branch !== null && status?.branch !== null && status?.branch === target.branch;
+        target.branch !== null &&
+        status?.branch !== null &&
+        status?.branch === target.branch;
       map.set(target.threadId, branchMatches ? (status?.pr ?? null) : null);
     }
     return map;
@@ -368,27 +406,31 @@ export default function Sidebar() {
     onArchiveActiveThread: (projectId) => handleNewThread(projectId),
   });
 
-  const openPrLink = useCallback((event: React.MouseEvent<HTMLElement>, prUrl: string) => {
-    event.preventDefault();
-    event.stopPropagation();
+  const openPrLink = useCallback(
+    (event: React.MouseEvent<HTMLElement>, prUrl: string) => {
+      event.preventDefault();
+      event.stopPropagation();
 
-    const api = readNativeApi();
-    if (!api) {
-      toastManager.add({
-        type: "error",
-        title: "Link opening is unavailable.",
-      });
-      return;
-    }
+      const api = readNativeApi();
+      if (!api) {
+        toastManager.add({
+          type: "error",
+          title: "Link opening is unavailable.",
+        });
+        return;
+      }
 
-    void api.shell.openExternal(prUrl).catch((error) => {
-      toastManager.add({
-        type: "error",
-        title: "Unable to open PR link",
-        description: error instanceof Error ? error.message : "An error occurred.",
+      void api.shell.openExternal(prUrl).catch((error) => {
+        toastManager.add({
+          type: "error",
+          title: "Unable to open PR link",
+          description:
+            error instanceof Error ? error.message : "An error occurred.",
+        });
       });
-    });
-  }, []);
+    },
+    [],
+  );
 
   const handleNewThread = useCallback(
     (
@@ -408,7 +450,9 @@ export default function Sidebar() {
           if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
             setDraftThreadContext(storedDraftThread.threadId, {
               ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
-              ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
+              ...(hasWorktreePathOption
+                ? { worktreePath: options?.worktreePath ?? null }
+                : {}),
               ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
             });
           }
@@ -424,12 +468,20 @@ export default function Sidebar() {
       }
       clearProjectDraftThreadId(projectId);
 
-      const activeDraftThread = routeThreadId ? getDraftThread(routeThreadId) : null;
-      if (activeDraftThread && routeThreadId && activeDraftThread.projectId === projectId) {
+      const activeDraftThread = routeThreadId
+        ? getDraftThread(routeThreadId)
+        : null;
+      if (
+        activeDraftThread &&
+        routeThreadId &&
+        activeDraftThread.projectId === projectId
+      ) {
         if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
           setDraftThreadContext(routeThreadId, {
             ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
-            ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
+            ...(hasWorktreePathOption
+              ? { worktreePath: options?.worktreePath ?? null }
+              : {}),
             ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
           });
         }
@@ -467,9 +519,13 @@ export default function Sidebar() {
   const focusMostRecentThreadForProject = useCallback(
     (projectId: ProjectId) => {
       const latestThread = threads
-        .filter((thread) => thread.projectId === projectId && thread.archivedAt === null)
+        .filter(
+          (thread) =>
+            thread.projectId === projectId && thread.archivedAt === null,
+        )
         .toSorted((a, b) => {
-          const byDate = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          const byDate =
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
           if (byDate !== 0) return byDate;
           return b.id.localeCompare(a.id);
         })[0];
@@ -509,7 +565,9 @@ export default function Sidebar() {
 
       const projectId = newProjectId();
       const createdAt = new Date().toISOString();
-      const title = options?.title?.trim() || (cwd.split(/[/\\]/).findLast(isNonEmptyString) ?? cwd);
+      const title =
+        options?.title?.trim() ||
+        (cwd.split(/[/\\]/).findLast(isNonEmptyString) ?? cwd);
       const projectCreated = await api.orchestration
         .dispatchCommand({
           type: "project.create",
@@ -527,7 +585,12 @@ export default function Sidebar() {
       }
       finishAddingProject();
     },
-    [focusMostRecentThreadForProject, handleNewThread, isAddingProject, projects],
+    [
+      focusMostRecentThreadForProject,
+      handleNewThread,
+      isAddingProject,
+      projects,
+    ],
   );
 
   const handleCreateProjectFromHome = useCallback(
@@ -574,7 +637,10 @@ export default function Sidebar() {
 
       const trimmed = newTitle.trim();
       if (trimmed.length === 0) {
-        toastManager.add({ type: "warning", title: "Thread title cannot be empty" });
+        toastManager.add({
+          type: "warning",
+          title: "Thread title cannot be empty",
+        });
         finishRename();
         return;
       }
@@ -598,7 +664,8 @@ export default function Sidebar() {
         toastManager.add({
           type: "error",
           title: "Failed to rename thread",
-          description: error instanceof Error ? error.message : "An error occurred.",
+          description:
+            error instanceof Error ? error.message : "An error occurred.",
         });
       }
       finishRename();
@@ -637,7 +704,8 @@ export default function Sidebar() {
           toastManager.add({
             type: "error",
             title: "Failed to archive thread",
-            description: error instanceof Error ? error.message : "An error occurred.",
+            description:
+              error instanceof Error ? error.message : "An error occurred.",
           });
         }
         return;
@@ -659,7 +727,8 @@ export default function Sidebar() {
           toastManager.add({
             type: "error",
             title: "Failed to copy thread ID",
-            description: error instanceof Error ? error.message : "An error occurred.",
+            description:
+              error instanceof Error ? error.message : "An error occurred.",
           });
         }
         return;
@@ -671,15 +740,12 @@ export default function Sidebar() {
         toastManager.add({
           type: "error",
           title: "Failed to delete thread",
-          description: error instanceof Error ? error.message : "An error occurred.",
+          description:
+            error instanceof Error ? error.message : "An error occurred.",
         });
       }
     },
-    [
-      archiveThread,
-      confirmAndDeleteThread,
-      markThreadUnread,
-    ],
+    [archiveThread, confirmAndDeleteThread, markThreadUnread],
   );
 
   const handleProjectContextMenu = useCallback(
@@ -695,7 +761,9 @@ export default function Sidebar() {
       const project = projects.find((entry) => entry.id === projectId);
       if (!project) return;
 
-      const projectThreads = threads.filter((thread) => thread.projectId === projectId);
+      const projectThreads = threads.filter(
+        (thread) => thread.projectId === projectId,
+      );
       if (projectThreads.length > 0) {
         toastManager.add({
           type: "warning",
@@ -706,7 +774,10 @@ export default function Sidebar() {
       }
 
       const confirmed = await api.dialogs.confirm(
-        [`Delete project "${project.name}"?`, "This action cannot be undone."].join("\n"),
+        [
+          `Delete project "${project.name}"?`,
+          "This action cannot be undone.",
+        ].join("\n"),
       );
       if (!confirmed) return;
 
@@ -722,7 +793,10 @@ export default function Sidebar() {
           projectId,
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown error deleting project.";
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Unknown error deleting project.";
         console.error("Failed to remove project", { projectId, error });
         toastManager.add({
           type: "error",
@@ -745,10 +819,14 @@ export default function Sidebar() {
       const activeThread = routeThreadId
         ? threads.find((thread) => thread.id === routeThreadId)
         : undefined;
-      const activeDraftThread = routeThreadId ? getDraftThread(routeThreadId) : null;
+      const activeDraftThread = routeThreadId
+        ? getDraftThread(routeThreadId)
+        : null;
       if (isChatNewLocalShortcut(event, keybindings)) {
         const projectId =
-          activeThread?.projectId ?? activeDraftThread?.projectId ?? projects[0]?.id;
+          activeThread?.projectId ??
+          activeDraftThread?.projectId ??
+          projects[0]?.id;
         if (!projectId) return;
         event.preventDefault();
         void handleNewThread(projectId);
@@ -756,13 +834,19 @@ export default function Sidebar() {
       }
 
       if (!isChatNewShortcut(event, keybindings)) return;
-      const projectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? projects[0]?.id;
+      const projectId =
+        activeThread?.projectId ??
+        activeDraftThread?.projectId ??
+        projects[0]?.id;
       if (!projectId) return;
       event.preventDefault();
       void handleNewThread(projectId, {
         branch: activeThread?.branch ?? activeDraftThread?.branch ?? null,
-        worktreePath: activeThread?.worktreePath ?? activeDraftThread?.worktreePath ?? null,
-        envMode: activeDraftThread?.envMode ?? (activeThread?.worktreePath ? "worktree" : "local"),
+        worktreePath:
+          activeThread?.worktreePath ?? activeDraftThread?.worktreePath ?? null,
+        envMode:
+          activeDraftThread?.envMode ??
+          (activeThread?.worktreePath ? "worktree" : "local"),
       });
     };
 
@@ -770,78 +854,24 @@ export default function Sidebar() {
     return () => {
       window.removeEventListener("keydown", onWindowKeyDown);
     };
-  }, [getDraftThread, handleNewThread, keybindings, projects, routeThreadId, threads]);
+  }, [
+    getDraftThread,
+    handleNewThread,
+    keybindings,
+    projects,
+    routeThreadId,
+    threads,
+  ]);
 
-  useEffect(() => {
-    if (!isElectron || !desktopUpdateState) {
-      return;
-    }
-
-    const availableVersion = desktopUpdateState.availableVersion;
-    if (
-      desktopUpdateState.status === "available" &&
-      availableVersion &&
-      !announcedAvailableUpdateVersionsRef.current.has(availableVersion)
-    ) {
-      announcedAvailableUpdateVersionsRef.current.add(availableVersion);
-      toastManager.add({
-        type: "info",
-        title: "Update available",
-        description: `Version ${availableVersion} is downloading in the background.`,
-        timeout: 0,
-        data: { dismissAfterVisibleMs: 15_000 },
-      });
-    }
-
-    const downloadedVersion = desktopUpdateState.downloadedVersion;
-    if (
-      desktopUpdateState.status === "downloaded" &&
-      downloadedVersion &&
-      !announcedDownloadedUpdateVersionsRef.current.has(downloadedVersion)
-    ) {
-      announcedDownloadedUpdateVersionsRef.current.add(downloadedVersion);
-      toastManager.add({
-        type: "success",
-        title: "Update ready to install",
-        description: `Version ${downloadedVersion} has been downloaded.`,
-        timeout: 0,
-        data: { dismissAfterVisibleMs: 15_000 },
-        actionProps: {
-          children: "Restart",
-          onClick: () => {
-            void installUpdate()
-              .then((result) => {
-                if (!result) return;
-                if (!shouldToastDesktopUpdateActionResult(result)) return;
-                const actionError = getDesktopUpdateActionError(result);
-                if (!actionError) return;
-                toastManager.add({
-                  type: "error",
-                  title: "Could not install update",
-                  description: actionError,
-                });
-              })
-              .catch((error) => {
-                toastManager.add({
-                  type: "error",
-                  title: "Could not install update",
-                  description:
-                    error instanceof Error ? error.message : "An unexpected error occurred.",
-                });
-              });
-          },
-        },
-      });
-    }
-  }, [desktopUpdateState, installUpdate]);
-
-  const showDesktopUpdateButton = isElectron && shouldShowDesktopUpdateButton(desktopUpdateState);
+  const showDesktopUpdateButton =
+    isElectron && shouldShowDesktopUpdateButton(desktopUpdateState);
 
   const desktopUpdateTooltip = desktopUpdateState
     ? getDesktopUpdateButtonTooltip(desktopUpdateState)
     : "Update available";
 
-  const desktopUpdateButtonDisabled = isDesktopUpdateButtonDisabled(desktopUpdateState);
+  const desktopUpdateButtonDisabled =
+    isDesktopUpdateButtonDisabled(desktopUpdateState);
   const desktopUpdateButtonAction = desktopUpdateState
     ? resolveDesktopUpdateButtonAction(desktopUpdateState)
     : "none";
@@ -865,7 +895,8 @@ export default function Sidebar() {
 
   const handleDesktopUpdateButtonClick = useCallback(() => {
     if (!desktopUpdateState) return;
-    if (desktopUpdateButtonDisabled || desktopUpdateButtonAction === "none") return;
+    if (desktopUpdateButtonDisabled || desktopUpdateButtonAction === "none")
+      return;
 
     if (desktopUpdateButtonAction === "download") {
       void downloadUpdate()
@@ -875,7 +906,8 @@ export default function Sidebar() {
             toastManager.add({
               type: "success",
               title: "Update downloaded",
-              description: "Restart the app from the update button to install it.",
+              description:
+                "Restart the app from the update button to install it.",
             });
           }
           if (!shouldToastDesktopUpdateActionResult(result)) return;
@@ -891,7 +923,10 @@ export default function Sidebar() {
           toastManager.add({
             type: "error",
             title: "Could not start update download",
-            description: error instanceof Error ? error.message : "An unexpected error occurred.",
+            description:
+              error instanceof Error
+                ? error.message
+                : "An unexpected error occurred.",
           });
         });
       return;
@@ -914,7 +949,10 @@ export default function Sidebar() {
           toastManager.add({
             type: "error",
             title: "Could not install update",
-            description: error instanceof Error ? error.message : "An unexpected error occurred.",
+            description:
+              error instanceof Error
+                ? error.message
+                : "An unexpected error occurred.",
           });
         });
     }
@@ -987,7 +1025,9 @@ export default function Sidebar() {
                     </button>
                   }
                 />
-                <TooltipPopup side="bottom">{desktopUpdateTooltip}</TooltipPopup>
+                <TooltipPopup side="bottom">
+                  {desktopUpdateTooltip}
+                </TooltipPopup>
               </Tooltip>
             )}
           </SidebarHeader>
@@ -1003,14 +1043,23 @@ export default function Sidebar() {
           <SidebarMenu>
             {projects.map((project) => {
               const projectThreads = threads
-                .filter((thread) => thread.projectId === project.id && thread.archivedAt === null)
+                .filter(
+                  (thread) =>
+                    thread.projectId === project.id &&
+                    thread.archivedAt === null,
+                )
                 .toSorted((a, b) => {
-                  const byDate = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+                  const byDate =
+                    new Date(b.createdAt).getTime() -
+                    new Date(a.createdAt).getTime();
                   if (byDate !== 0) return byDate;
                   return b.id.localeCompare(a.id);
                 });
-              const isThreadListExpanded = expandedThreadListsByProject.has(project.id);
-              const hasHiddenThreads = projectThreads.length > THREAD_PREVIEW_LIMIT;
+              const isThreadListExpanded = expandedThreadListsByProject.has(
+                project.id,
+              );
+              const hasHiddenThreads =
+                projectThreads.length > THREAD_PREVIEW_LIMIT;
               const visibleThreads =
                 hasHiddenThreads && !isThreadListExpanded
                   ? projectThreads.slice(0, THREAD_PREVIEW_LIMIT)
@@ -1091,14 +1140,21 @@ export default function Sidebar() {
                             thread,
                             pendingApprovalByThreadId.get(thread.id) === true,
                           );
-                          const prStatus = prStatusIndicator(prByThreadId.get(thread.id) ?? null);
+                          const prStatus = prStatusIndicator(
+                            prByThreadId.get(thread.id) ?? null,
+                          );
                           const terminalStatus = terminalStatusFromRunningIds(
-                            selectThreadTerminalState(terminalStateByThreadId, thread.id)
-                              .runningTerminalIds,
+                            selectThreadTerminalState(
+                              terminalStateByThreadId,
+                              thread.id,
+                            ).runningTerminalIds,
                           );
 
                           return (
-                            <SidebarMenuSubItem key={thread.id} className="w-full">
+                            <SidebarMenuSubItem
+                              key={thread.id}
+                              className="w-full"
+                            >
                               <SidebarMenuSubButton
                                 render={<div role="button" tabIndex={0} />}
                                 size="sm"
@@ -1115,7 +1171,11 @@ export default function Sidebar() {
                                   });
                                 }}
                                 onKeyDown={(event) => {
-                                  if (event.key !== "Enter" && event.key !== " ") return;
+                                  if (
+                                    event.key !== "Enter" &&
+                                    event.key !== " "
+                                  )
+                                    return;
                                   event.preventDefault();
                                   void navigate({
                                     to: "/$threadId",
@@ -1147,7 +1207,9 @@ export default function Sidebar() {
                                           </button>
                                         }
                                       />
-                                      <TooltipPopup side="top">{prStatus.tooltip}</TooltipPopup>
+                                      <TooltipPopup side="top">
+                                        {prStatus.tooltip}
+                                      </TooltipPopup>
                                     </Tooltip>
                                   )}
                                   {threadStatus && (
@@ -1156,16 +1218,23 @@ export default function Sidebar() {
                                     >
                                       <span
                                         className={`h-1.5 w-1.5 rounded-full ${threadStatus.dotClass} ${
-                                          threadStatus.pulse ? "animate-pulse" : ""
+                                          threadStatus.pulse
+                                            ? "animate-pulse"
+                                            : ""
                                         }`}
                                       />
-                                      <span className="hidden md:inline">{threadStatus.label}</span>
+                                      <span className="hidden md:inline">
+                                        {threadStatus.label}
+                                      </span>
                                     </span>
                                   )}
                                   {renamingThreadId === thread.id ? (
                                     <input
                                       ref={(el) => {
-                                        if (el && renamingInputRef.current !== el) {
+                                        if (
+                                          el &&
+                                          renamingInputRef.current !== el
+                                        ) {
                                           renamingInputRef.current = el;
                                           el.focus();
                                           el.select();
@@ -1173,13 +1242,19 @@ export default function Sidebar() {
                                       }}
                                       className="min-w-0 flex-1 truncate text-xs bg-transparent outline-none border border-ring rounded px-0.5"
                                       value={renamingTitle}
-                                      onChange={(e) => setRenamingTitle(e.target.value)}
+                                      onChange={(e) =>
+                                        setRenamingTitle(e.target.value)
+                                      }
                                       onKeyDown={(e) => {
                                         e.stopPropagation();
                                         if (e.key === "Enter") {
                                           e.preventDefault();
                                           renamingCommittedRef.current = true;
-                                          void commitRename(thread.id, renamingTitle, thread.title);
+                                          void commitRename(
+                                            thread.id,
+                                            renamingTitle,
+                                            thread.title,
+                                          );
                                         } else if (e.key === "Escape") {
                                           e.preventDefault();
                                           renamingCommittedRef.current = true;
@@ -1188,7 +1263,11 @@ export default function Sidebar() {
                                       }}
                                       onBlur={() => {
                                         if (!renamingCommittedRef.current) {
-                                          void commitRename(thread.id, renamingTitle, thread.title);
+                                          void commitRename(
+                                            thread.id,
+                                            renamingTitle,
+                                            thread.title,
+                                          );
                                         }
                                       }}
                                       onClick={(e) => e.stopPropagation()}
@@ -1214,7 +1293,9 @@ export default function Sidebar() {
                                   )}
                                   <span
                                     className={`text-[10px] ${
-                                      isActive ? "text-foreground/65" : "text-muted-foreground/40"
+                                      isActive
+                                        ? "text-foreground/65"
+                                        : "text-muted-foreground/40"
                                     }`}
                                   >
                                     {formatRelativeTime(thread.createdAt)}
@@ -1355,8 +1436,8 @@ export default function Sidebar() {
             </div>
             {appSettings.projectHomePath.trim().length === 0 ? (
               <p className="px-1 text-[10px] leading-relaxed text-muted-foreground/70">
-                Save a project home in the setup guide if you want T3 Sparks to create new project
-                folders for you.
+                Save a project home in the setup guide if you want T3 Sparks to
+                create new project folders for you.
               </p>
             ) : null}
           </div>

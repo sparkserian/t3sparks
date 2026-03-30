@@ -17,7 +17,10 @@ import {
 } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
 import * as Effect from "effect/Effect";
-import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3sparks/contracts";
+import type {
+  DesktopUpdateActionResult,
+  DesktopUpdateState,
+} from "@t3sparks/contracts";
 import { autoUpdater } from "electron-updater";
 
 import type { ContextMenuItem } from "@t3sparks/contracts";
@@ -57,11 +60,14 @@ const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const STATE_DIR =
-  process.env.T3SPARKS_STATE_DIR?.trim() || Path.join(OS.homedir(), ".t3sparks", "userdata");
+  process.env.T3SPARKS_STATE_DIR?.trim() ||
+  Path.join(OS.homedir(), ".t3sparks", "userdata");
 const DESKTOP_SCHEME = "t3";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const APP_DISPLAY_NAME = isDevelopment ? "T3 Sparks (Dev)" : "T3 Sparks (Alpha)";
+const APP_DISPLAY_NAME = isDevelopment
+  ? "T3 Sparks (Dev)"
+  : "T3 Sparks (Alpha)";
 const APP_USER_MODEL_ID = "com.sparkserian.t3sparks";
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
@@ -70,8 +76,8 @@ const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_FILE_MAX_FILES = 10;
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
-const AUTO_UPDATE_WARMUP_RETRY_DELAY_MS = 5 * 60 * 1000;
-const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const AUTO_UPDATE_WARMUP_RETRY_DELAY_MS = 60 * 1000;
+const AUTO_UPDATE_POLL_INTERVAL_MS = 60 * 1000;
 
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 
@@ -90,7 +96,8 @@ let backendLogSink: RotatingFileSink | null = null;
 let restoreStdIoCapture: (() => void) | null = null;
 
 let destructiveMenuIconCache: Electron.NativeImage | null | undefined;
-const initialUpdateState = (): DesktopUpdateState => createInitialDesktopUpdateState(app.getVersion());
+const initialUpdateState = (): DesktopUpdateState =>
+  createInitialDesktopUpdateState(app.getVersion());
 
 function logTimestamp(): string {
   return new Date().toISOString();
@@ -106,10 +113,15 @@ function sanitizeLogValue(value: string): string {
 
 function writeDesktopLogHeader(message: string): void {
   if (!desktopLogSink) return;
-  desktopLogSink.write(`[${logTimestamp()}] [${logScope("desktop")}] ${message}\n`);
+  desktopLogSink.write(
+    `[${logTimestamp()}] [${logScope("desktop")}] ${message}\n`,
+  );
 }
 
-function writeBackendSessionBoundary(phase: "START" | "END", details: string): void {
+function writeBackendSessionBoundary(
+  phase: "START" | "END",
+  details: string,
+): void {
   if (!backendLogSink) return;
   const normalizedDetails = sanitizeLogValue(details);
   backendLogSink.write(
@@ -160,7 +172,10 @@ function writeDesktopStreamChunk(
   if (!desktopLogSink) return;
   const buffer = Buffer.isBuffer(chunk)
     ? chunk
-    : Buffer.from(String(chunk), typeof chunk === "string" ? encoding : undefined);
+    : Buffer.from(
+        String(chunk),
+        typeof chunk === "string" ? encoding : undefined,
+      );
   desktopLogSink.write(`[${logTimestamp()}] [${logScope(streamName)}] `);
   desktopLogSink.write(buffer);
   if (buffer.length === 0 || buffer[buffer.length - 1] !== 0x0a) {
@@ -169,7 +184,11 @@ function writeDesktopStreamChunk(
 }
 
 function installStdIoCapture(): void {
-  if (!app.isPackaged || desktopLogSink === null || restoreStdIoCapture !== null) {
+  if (
+    !app.isPackaged ||
+    desktopLogSink === null ||
+    restoreStdIoCapture !== null
+  ) {
     return;
   }
 
@@ -177,13 +196,17 @@ function installStdIoCapture(): void {
   const originalStderrWrite = process.stderr.write.bind(process.stderr);
 
   const patchWrite =
-    (streamName: "stdout" | "stderr", originalWrite: typeof process.stdout.write) =>
+    (
+      streamName: "stdout" | "stderr",
+      originalWrite: typeof process.stdout.write,
+    ) =>
     (
       chunk: string | Uint8Array,
       encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
       callback?: (error?: Error | null) => void,
     ): boolean => {
-      const encoding = typeof encodingOrCallback === "string" ? encodingOrCallback : undefined;
+      const encoding =
+        typeof encodingOrCallback === "string" ? encodingOrCallback : undefined;
       writeDesktopStreamChunk(streamName, chunk, encoding);
       if (typeof encodingOrCallback === "function") {
         return originalWrite(chunk, encodingOrCallback);
@@ -232,7 +255,9 @@ function captureBackendOutput(child: ChildProcess.ChildProcess): void {
   if (!app.isPackaged || backendLogSink === null) return;
   const writeChunk = (chunk: unknown): void => {
     if (!backendLogSink) return;
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), "utf8");
+    const buffer = Buffer.isBuffer(chunk)
+      ? chunk
+      : Buffer.from(String(chunk), "utf8");
     backendLogSink.write(buffer);
   };
   child.stdout?.on("data", writeChunk);
@@ -393,7 +418,10 @@ function resolveDesktopStaticDir(): string | null {
   return null;
 }
 
-function resolveDesktopStaticPath(staticRoot: string, requestUrl: string): string {
+function resolveDesktopStaticPath(
+  staticRoot: string,
+  requestUrl: string,
+): string {
   const url = new URL(requestUrl);
   const rawPath = decodeURIComponent(url.pathname);
   const normalizedPath = Path.posix.normalize(rawPath).replace(/^\/+/, "");
@@ -401,7 +429,8 @@ function resolveDesktopStaticPath(staticRoot: string, requestUrl: string): strin
     return Path.join(staticRoot, "index.html");
   }
 
-  const requestedPath = normalizedPath.length > 0 ? normalizedPath : "index.html";
+  const requestedPath =
+    normalizedPath.length > 0 ? normalizedPath : "index.html";
   const resolvedPath = Path.join(staticRoot, requestedPath);
 
   if (Path.extname(resolvedPath)) {
@@ -428,12 +457,19 @@ function isStaticAssetRequest(requestUrl: string): boolean {
 function handleFatalStartupError(stage: string, error: unknown): void {
   const message = formatErrorMessage(error);
   const detail =
-    error instanceof Error && typeof error.stack === "string" ? `\n${error.stack}` : "";
-  writeDesktopLogHeader(`fatal startup error stage=${stage} message=${message}`);
+    error instanceof Error && typeof error.stack === "string"
+      ? `\n${error.stack}`
+      : "";
+  writeDesktopLogHeader(
+    `fatal startup error stage=${stage} message=${message}`,
+  );
   console.error(`[desktop] fatal startup error (${stage})`, error);
   if (!isQuitting) {
     isQuitting = true;
-    dialog.showErrorBox("T3 Sparks failed to start", `Stage: ${stage}\n${message}${detail}`);
+    dialog.showErrorBox(
+      "T3 Sparks failed to start",
+      `Stage: ${stage}\n${message}${detail}`,
+    );
   }
   stopBackend();
   restoreStdIoCapture?.();
@@ -456,10 +492,14 @@ function registerDesktopProtocol(): void {
 
   protocol.registerFileProtocol(DESKTOP_SCHEME, (request, callback) => {
     try {
-      const candidate = resolveDesktopStaticPath(staticRootResolved, request.url);
+      const candidate = resolveDesktopStaticPath(
+        staticRootResolved,
+        request.url,
+      );
       const resolvedCandidate = Path.resolve(candidate);
       const isInRoot =
-        resolvedCandidate === fallbackIndex || resolvedCandidate.startsWith(staticRootPrefix);
+        resolvedCandidate === fallbackIndex ||
+        resolvedCandidate.startsWith(staticRootPrefix);
       const isAssetRequest = isStaticAssetRequest(request.url);
 
       if (!isInRoot || !FS.existsSync(resolvedCandidate)) {
@@ -482,7 +522,9 @@ function registerDesktopProtocol(): void {
 
 function dispatchMenuAction(action: string): void {
   const existingWindow =
-    BrowserWindow.getFocusedWindow() ?? mainWindow ?? BrowserWindow.getAllWindows()[0];
+    BrowserWindow.getFocusedWindow() ??
+    mainWindow ??
+    BrowserWindow.getAllWindows()[0];
   const targetWindow = existingWindow ?? createWindow();
   if (!existingWindow) {
     mainWindow = targetWindow;
@@ -514,7 +556,9 @@ function handleCheckForUpdatesMenuClick(): void {
     disabledByEnv: process.env.T3SPARKS_DISABLE_AUTO_UPDATE === "1",
   });
   if (disabledReason) {
-    console.info("[desktop-updater] Manual update check requested, but updates are disabled.");
+    console.info(
+      "[desktop-updater] Manual update check requested, but updates are disabled.",
+    );
     void dialog.showMessageBox({
       type: "info",
       title: "Updates unavailable",
@@ -681,14 +725,19 @@ async function checkForUpdates(
   if (isQuitting || !updaterConfigured || updateCheckInFlight) {
     return { accepted: false, completed: false };
   }
-  if (updateState.status === "downloading" || updateState.status === "downloaded") {
+  if (
+    updateState.status === "downloading" ||
+    updateState.status === "downloaded"
+  ) {
     console.info(
       `[desktop-updater] Skipping update check (${reason}) while status=${updateState.status}.`,
     );
     return { accepted: false, completed: false };
   }
   updateCheckInFlight = true;
-  setUpdateState(reduceDesktopUpdateStateOnCheckStart(updateState, new Date().toISOString()));
+  setUpdateState(
+    reduceDesktopUpdateStateOnCheckStart(updateState, new Date().toISOString()),
+  );
   console.info(`[desktop-updater] Checking for updates (${reason})...`);
 
   try {
@@ -696,7 +745,13 @@ async function checkForUpdates(
     return { accepted: true, completed: true };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    setUpdateState(reduceDesktopUpdateStateOnCheckFailure(updateState, message, new Date().toISOString()));
+    setUpdateState(
+      reduceDesktopUpdateStateOnCheckFailure(
+        updateState,
+        message,
+        new Date().toISOString(),
+      ),
+    );
     console.error(`[desktop-updater] Failed to check for updates: ${message}`);
     return { accepted: true, completed: false };
   } finally {
@@ -707,7 +762,11 @@ async function checkForUpdates(
 async function downloadAvailableUpdate(
   trigger: "manual" | "background" = "manual",
 ): Promise<{ accepted: boolean; completed: boolean }> {
-  if (!updaterConfigured || updateDownloadInFlight || updateState.status !== "available") {
+  if (
+    !updaterConfigured ||
+    updateDownloadInFlight ||
+    updateState.status !== "available"
+  ) {
     return { accepted: false, completed: false };
   }
   updateDownloadInFlight = true;
@@ -723,7 +782,9 @@ async function downloadAvailableUpdate(
     return { accepted: true, completed: true };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    setUpdateState(reduceDesktopUpdateStateOnDownloadFailure(updateState, message));
+    setUpdateState(
+      reduceDesktopUpdateStateOnDownloadFailure(updateState, message),
+    );
     console.error(`[desktop-updater] Failed to download update: ${message}`);
     return { accepted: true, completed: false };
   } finally {
@@ -731,7 +792,10 @@ async function downloadAvailableUpdate(
   }
 }
 
-async function installDownloadedUpdate(): Promise<{ accepted: boolean; completed: boolean }> {
+async function installDownloadedUpdate(): Promise<{
+  accepted: boolean;
+  completed: boolean;
+}> {
   if (isQuitting || !updaterConfigured || updateState.status !== "downloaded") {
     return { accepted: false, completed: false };
   }
@@ -745,7 +809,9 @@ async function installDownloadedUpdate(): Promise<{ accepted: boolean; completed
   } catch (error: unknown) {
     const message = formatErrorMessage(error);
     isQuitting = false;
-    setUpdateState(reduceDesktopUpdateStateOnInstallFailure(updateState, message));
+    setUpdateState(
+      reduceDesktopUpdateStateOnInstallFailure(updateState, message),
+    );
     console.error(`[desktop-updater] Failed to install update: ${message}`);
     return { accepted: true, completed: false };
   }
@@ -792,14 +858,20 @@ function configureAutoUpdater(): void {
   });
   autoUpdater.on("update-available", (info) => {
     setUpdateState(
-      reduceDesktopUpdateStateOnUpdateAvailable(updateState, info.version, new Date().toISOString()),
+      reduceDesktopUpdateStateOnUpdateAvailable(
+        updateState,
+        info.version,
+        new Date().toISOString(),
+      ),
     );
     lastLoggedDownloadMilestone = -1;
     console.info(`[desktop-updater] Update available: ${info.version}`);
     void downloadAvailableUpdate("background");
   });
   autoUpdater.on("update-not-available", () => {
-    setUpdateState(reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()));
+    setUpdateState(
+      reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()),
+    );
     lastLoggedDownloadMilestone = -1;
     console.info("[desktop-updater] No updates available.");
   });
@@ -812,7 +884,9 @@ function configureAutoUpdater(): void {
         checkedAt: new Date().toISOString(),
         downloadPercent: null,
         errorContext: resolveUpdaterErrorContext(),
-        canRetry: updateState.availableVersion !== null || updateState.downloadedVersion !== null,
+        canRetry:
+          updateState.availableVersion !== null ||
+          updateState.downloadedVersion !== null,
       });
     }
     console.error(`[desktop-updater] Updater error: ${message}`);
@@ -823,7 +897,12 @@ function configureAutoUpdater(): void {
       shouldBroadcastDownloadProgress(updateState, progress.percent) ||
       updateState.message !== null
     ) {
-      setUpdateState(reduceDesktopUpdateStateOnDownloadProgress(updateState, progress.percent));
+      setUpdateState(
+        reduceDesktopUpdateStateOnDownloadProgress(
+          updateState,
+          progress.percent,
+        ),
+      );
     }
     const milestone = percent - (percent % 10);
     if (milestone > lastLoggedDownloadMilestone) {
@@ -832,7 +911,9 @@ function configureAutoUpdater(): void {
     }
   });
   autoUpdater.on("update-downloaded", (info) => {
-    setUpdateState(reduceDesktopUpdateStateOnDownloadComplete(updateState, info.version));
+    setUpdateState(
+      reduceDesktopUpdateStateOnDownloadComplete(updateState, info.version),
+    );
     console.info(`[desktop-updater] Update downloaded: ${info.version}`);
   });
 
@@ -871,7 +952,9 @@ function scheduleBackendRestart(reason: string): void {
 
   const delayMs = Math.min(500 * 2 ** restartAttempt, 10_000);
   restartAttempt += 1;
-  console.error(`[desktop] backend exited unexpectedly (${reason}); restarting in ${delayMs}ms`);
+  console.error(
+    `[desktop] backend exited unexpectedly (${reason}); restarting in ${delayMs}ms`,
+  );
 
   restartTimer = setTimeout(() => {
     restartTimer = null;
@@ -967,7 +1050,8 @@ async function stopBackendAndWaitForExit(timeoutMs = 5_000): Promise<void> {
   backendProcess = null;
   if (!child) return;
   const backendChild = child;
-  if (backendChild.exitCode !== null || backendChild.signalCode !== null) return;
+  if (backendChild.exitCode !== null || backendChild.signalCode !== null)
+    return;
 
   await new Promise<void>((resolve) => {
     let settled = false;
@@ -1036,9 +1120,16 @@ function registerIpcHandlers(): void {
   ipcMain.removeHandler(CONTEXT_MENU_CHANNEL);
   ipcMain.handle(
     CONTEXT_MENU_CHANNEL,
-    async (_event, items: ContextMenuItem[], position?: { x: number; y: number }) => {
+    async (
+      _event,
+      items: ContextMenuItem[],
+      position?: { x: number; y: number },
+    ) => {
       const normalizedItems = items
-        .filter((item) => typeof item.id === "string" && typeof item.label === "string")
+        .filter(
+          (item) =>
+            typeof item.id === "string" && typeof item.label === "string",
+        )
         .map((item) => ({
           id: item.id,
           label: item.label,
@@ -1067,7 +1158,11 @@ function registerIpcHandlers(): void {
         const template: MenuItemConstructorOptions[] = [];
         let hasInsertedDestructiveSeparator = false;
         for (const item of normalizedItems) {
-          if (item.destructive && !hasInsertedDestructiveSeparator && template.length > 0) {
+          if (
+            item.destructive &&
+            !hasInsertedDestructiveSeparator &&
+            template.length > 0
+          ) {
             template.push({ type: "separator" });
             hasInsertedDestructiveSeparator = true;
           }
@@ -1125,19 +1220,22 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(SHOW_ITEM_IN_FOLDER_CHANNEL);
-  ipcMain.handle(SHOW_ITEM_IN_FOLDER_CHANNEL, async (_event, rawPath: unknown) => {
-    const targetPath = normalizeDesktopPath(rawPath);
-    if (!targetPath) {
-      return false;
-    }
+  ipcMain.handle(
+    SHOW_ITEM_IN_FOLDER_CHANNEL,
+    async (_event, rawPath: unknown) => {
+      const targetPath = normalizeDesktopPath(rawPath);
+      if (!targetPath) {
+        return false;
+      }
 
-    try {
-      shell.showItemInFolder(targetPath);
-      return true;
-    } catch {
-      return false;
-    }
-  });
+      try {
+        shell.showItemInFolder(targetPath);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  );
 
   ipcMain.removeHandler(UPDATE_CHECK_CHANNEL);
   ipcMain.handle(UPDATE_CHECK_CHANNEL, async () => {
@@ -1289,7 +1387,9 @@ async function bootstrap(): Promise<void> {
     Effect.provide(NetService.layer),
     Effect.runPromise,
   );
-  writeDesktopLogHeader(`reserved backend port via NetService port=${backendPort}`);
+  writeDesktopLogHeader(
+    `reserved backend port via NetService port=${backendPort}`,
+  );
   backendAuthToken = Crypto.randomBytes(24).toString("hex");
   backendWsUrl = `ws://127.0.0.1:${backendPort}/?token=${encodeURIComponent(backendAuthToken)}`;
   process.env.T3SPARKS_DESKTOP_WS_URL = backendWsUrl;
@@ -1323,7 +1423,12 @@ app
       handleFatalStartupError("bootstrap", error);
     });
 
+    app.on("browser-window-focus", () => {
+      void checkForUpdates("focus");
+    });
+
     app.on("activate", () => {
+      void checkForUpdates("activate");
       if (BrowserWindow.getAllWindows().length === 0) {
         mainWindow = createWindow();
       }
