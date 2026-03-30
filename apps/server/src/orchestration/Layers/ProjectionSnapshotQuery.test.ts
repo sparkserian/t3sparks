@@ -247,6 +247,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             assistantMessageId: asMessageId("message-1"),
           },
           createdAt: "2026-02-24T00:00:02.000Z",
+          archivedAt: null,
           updatedAt: "2026-02-24T00:00:03.000Z",
           deletedAt: null,
           messages: [

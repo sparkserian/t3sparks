@@ -163,6 +163,61 @@ describe("OrchestrationEngine", () => {
     await system.dispose();
   });
 
+  it("updates archivedAt through archive and unarchive commands", async () => {
+    const system = await createOrchestrationSystem();
+    const { engine } = system;
+    const createdAt = now();
+
+    await system.run(
+      engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-project-archive-create"),
+        projectId: asProjectId("project-archive"),
+        title: "Archive Project",
+        workspaceRoot: "/tmp/project-archive",
+        defaultModel: "gpt-5-codex",
+        createdAt,
+      }),
+    );
+    await system.run(
+      engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-thread-archive-create"),
+        threadId: ThreadId.makeUnsafe("thread-archive"),
+        projectId: asProjectId("project-archive"),
+        title: "Archive thread",
+        model: "gpt-5-codex",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+    await system.run(
+      engine.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.makeUnsafe("cmd-thread-archive"),
+        threadId: ThreadId.makeUnsafe("thread-archive"),
+      }),
+    );
+
+    const archivedReadModel = await system.run(engine.getReadModel());
+    expect(archivedReadModel.threads[0]?.archivedAt).not.toBeNull();
+
+    await system.run(
+      engine.dispatch({
+        type: "thread.unarchive",
+        commandId: CommandId.makeUnsafe("cmd-thread-unarchive"),
+        threadId: ThreadId.makeUnsafe("thread-archive"),
+      }),
+    );
+
+    const unarchivedReadModel = await system.run(engine.getReadModel());
+    expect(unarchivedReadModel.threads[0]?.archivedAt).toBeNull();
+    await system.dispose();
+  });
+
   it("streams persisted domain events in order", async () => {
     const system = await createOrchestrationSystem();
     const { engine } = system;

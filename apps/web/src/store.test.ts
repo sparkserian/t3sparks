@@ -26,6 +26,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     proposedPlans: [],
     error: null,
     createdAt: "2026-02-13T00:00:00.000Z",
+    archivedAt: null,
     latestTurn: null,
     branch: null,
     worktreePath: null,
@@ -62,6 +63,7 @@ function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"
     worktreePath: null,
     latestTurn: null,
     createdAt: "2026-02-27T00:00:00.000Z",
+    archivedAt: null,
     updatedAt: "2026-02-27T00:00:00.000Z",
     deletedAt: null,
     messages: [],
@@ -135,16 +137,31 @@ describe("store pure functions", () => {
 });
 
 describe("store read model sync", () => {
-  it("falls back to the codex default for unsupported provider models without an active session", () => {
+  it("falls back to the codex default for unknown models without an active session", () => {
     const initialState = makeState(makeThread());
     const readModel = makeReadModel(
       makeReadModelThread({
-        model: "claude-opus-4-6",
+        model: "unknown-provider-model",
       }),
     );
 
     const next = syncServerReadModel(initialState, readModel);
 
     expect(next.threads[0]?.model).toBe(DEFAULT_MODEL_BY_PROVIDER.codex);
+  });
+
+  it("maps archivedAt from the read model without removing the thread", () => {
+    const initialState = makeState(makeThread());
+    const archivedAt = "2026-03-01T12:00:00.000Z";
+    const readModel = makeReadModel(
+      makeReadModelThread({
+        archivedAt,
+      }),
+    );
+
+    const next = syncServerReadModel(initialState, readModel);
+
+    expect(next.threads).toHaveLength(1);
+    expect(next.threads[0]?.archivedAt).toBe(archivedAt);
   });
 });

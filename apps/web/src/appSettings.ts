@@ -30,7 +30,14 @@ export const APP_SERVICE_TIER_OPTIONS = [
   },
 ] as const;
 export type AppServiceTier = (typeof APP_SERVICE_TIER_OPTIONS)[number]["value"];
+export const APP_TIMESTAMP_FORMAT_OPTIONS = [
+  { value: "locale", label: "System default" },
+  { value: "12-hour", label: "12-hour" },
+  { value: "24-hour", label: "24-hour" },
+] as const;
+export type AppTimestampFormat = (typeof APP_TIMESTAMP_FORMAT_OPTIONS)[number]["value"];
 const AppServiceTierSchema = Schema.Literals(["auto", "fast", "flex"]);
+const AppTimestampFormatSchema = Schema.Literals(["locale", "12-hour", "24-hour"]);
 const MODELS_WITH_FAST_SUPPORT = new Set(["gpt-5.4"]);
 const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
   codex: new Set(getModelOptions("codex").map((option) => option.slug)),
@@ -50,6 +57,9 @@ const AppSettingsSchema = Schema.Struct({
     Schema.withConstructorDefault(() => Option.some(false)),
   ),
   codexServiceTier: AppServiceTierSchema.pipe(Schema.withConstructorDefault(() => Option.some("auto"))),
+  timestampFormat: AppTimestampFormatSchema.pipe(
+    Schema.withConstructorDefault(() => Option.some("locale")),
+  ),
   customCodexModels: Schema.Array(Schema.String).pipe(
     Schema.withConstructorDefault(() => Option.some([])),
   ),

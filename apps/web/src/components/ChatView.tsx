@@ -79,7 +79,6 @@ import {
   hasToolActivityForTurn,
   isLatestTurnSettled,
   formatElapsed,
-  formatTimestamp,
 } from "../session-logic";
 import { AUTO_SCROLL_BOTTOM_THRESHOLD_PX, isScrollContainerNearBottom } from "../chat-scroll";
 import {
@@ -232,10 +231,15 @@ import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./Compose
 import { estimateTimelineMessageHeight } from "./timelineHeight";
 import ProjectNotesSheet from "./ProjectNotesSheet";
 import { useProjectNotes } from "../projectNotes";
+import { formatTimestamp } from "../timestampFormat";
 
-function formatMessageMeta(createdAt: string, duration: string | null): string {
-  if (!duration) return formatTimestamp(createdAt);
-  return `${formatTimestamp(createdAt)} • ${duration}`;
+function formatMessageMeta(
+  createdAt: string,
+  duration: string | null,
+  timestampFormat: ReturnType<typeof useAppSettings>["settings"]["timestampFormat"],
+): string {
+  if (!duration) return formatTimestamp(createdAt, timestampFormat);
+  return `${formatTimestamp(createdAt, timestampFormat)} • ${duration}`;
 }
 
 const LAST_EDITOR_KEY = "t3sparks:last-editor";
@@ -358,6 +362,7 @@ function buildLocalDraftThread(
     messages: [],
     error,
     createdAt: draftThread.createdAt,
+    archivedAt: null,
     latestTurn: null,
     lastVisitedAt: draftThread.createdAt,
     branch: draftThread.branch,
@@ -3661,6 +3666,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           markdownCwd={gitCwd ?? undefined}
           resolvedTheme={resolvedTheme}
           workspaceRoot={activeProject?.cwd ?? undefined}
+          timestampFormat={settings.timestampFormat}
         />
       </div>
 
@@ -3687,6 +3693,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                   activePlan={activePlan}
                   collapsed={activePlanPanelCollapsed}
                   onToggleCollapsed={toggleActivePlanPanelCollapsed}
+                  timestampFormat={settings.timestampFormat}
                 />
               </div>
             ) : null}
@@ -4635,12 +4642,14 @@ interface ComposerPlanPanelProps {
   activePlan: ReturnType<typeof deriveActivePlanState>;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  timestampFormat: ReturnType<typeof useAppSettings>["settings"]["timestampFormat"];
 }
 
 const ComposerPlanPanel = memo(function ComposerPlanPanel({
   activePlan,
   collapsed,
   onToggleCollapsed,
+  timestampFormat,
 }: ComposerPlanPanelProps) {
   if (!activePlan) return null;
   const activeStep =
@@ -4667,7 +4676,7 @@ const ComposerPlanPanel = memo(function ComposerPlanPanel({
         </span>
         <span className="hidden text-[11px] text-muted-foreground sm:inline">
           {activeStep ? `Now: ${activeStep.status === "completed" ? "Done" : activeStep.status === "inProgress" ? "In progress" : "Pending"}` : `${activePlan.steps.length} step${activePlan.steps.length === 1 ? "" : "s"}`}{" "}
-          · Updated {formatTimestamp(activePlan.createdAt)}
+          · Updated {formatTimestamp(activePlan.createdAt, timestampFormat)}
         </span>
         <ChevronDownIcon
           aria-hidden="true"
@@ -5173,6 +5182,7 @@ interface MessagesTimelineProps {
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
   workspaceRoot: string | undefined;
+  timestampFormat: ReturnType<typeof useAppSettings>["settings"]["timestampFormat"];
 }
 
 type TimelineEntry = ReturnType<typeof deriveTimelineEntries>[number];
@@ -5227,6 +5237,7 @@ const MessagesTimeline = memo(function MessagesTimeline({
   markdownCwd,
   resolvedTheme,
   workspaceRoot,
+  timestampFormat,
 }: MessagesTimelineProps) {
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
@@ -5558,7 +5569,7 @@ const MessagesTimeline = memo(function MessagesTimeline({
                     )}
                   </div>
                   <p className="text-right text-[10px] text-muted-foreground/30">
-                    {formatTimestamp(row.message.createdAt)}
+                    {formatTimestamp(row.message.createdAt, timestampFormat)}
                   </p>
                 </div>
               </div>
@@ -5649,6 +5660,7 @@ const MessagesTimeline = memo(function MessagesTimeline({
                     row.message.streaming
                       ? formatElapsed(row.message.createdAt, nowIso)
                       : formatElapsed(row.message.createdAt, row.message.completedAt),
+                    timestampFormat,
                   )}
                 </p>
               </div>

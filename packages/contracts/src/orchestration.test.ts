@@ -5,15 +5,21 @@ import { Effect, Schema } from "effect";
 import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
+  OrchestrationCommand,
+  OrchestrationThread,
   OrchestrationGetTurnDiffInput,
   OrchestrationSession,
   ProjectCreateCommand,
   ThreadTurnStartCommand,
+  ThreadArchivedPayload,
   ThreadCreatedPayload,
   ThreadTurnDiff,
   ThreadTurnStartRequestedPayload,
+  ThreadUnarchivedPayload,
 } from "./orchestration";
 
+const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationCommand);
+const decodeOrchestrationThread = Schema.decodeUnknownEffect(OrchestrationThread);
 const decodeTurnDiffInput = Schema.decodeUnknownEffect(OrchestrationGetTurnDiffInput);
 const decodeThreadTurnDiff = Schema.decodeUnknownEffect(ThreadTurnDiff);
 const decodeProjectCreateCommand = Schema.decodeUnknownEffect(ProjectCreateCommand);
@@ -23,6 +29,8 @@ const decodeThreadTurnStartRequestedPayload = Schema.decodeUnknownEffect(
 );
 const decodeOrchestrationSession = Schema.decodeUnknownEffect(OrchestrationSession);
 const decodeThreadCreatedPayload = Schema.decodeUnknownEffect(ThreadCreatedPayload);
+const decodeThreadArchivedPayload = Schema.decodeUnknownEffect(ThreadArchivedPayload);
+const decodeThreadUnarchivedPayload = Schema.decodeUnknownEffect(ThreadUnarchivedPayload);
 
 it.effect("parses turn diff input when fromTurnCount <= toTurnCount", () =>
   Effect.gen(function* () {
@@ -253,5 +261,68 @@ it.effect("decodes orchestration session runtime mode defaults", () =>
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
+  }),
+);
+
+it.effect("decodes thread archive and unarchive commands", () =>
+  Effect.gen(function* () {
+    const archiveCommand = yield* decodeOrchestrationCommand({
+      type: "thread.archive",
+      commandId: "cmd-archive-1",
+      threadId: "thread-1",
+    });
+    const unarchiveCommand = yield* decodeOrchestrationCommand({
+      type: "thread.unarchive",
+      commandId: "cmd-unarchive-1",
+      threadId: "thread-1",
+    });
+
+    assert.strictEqual(archiveCommand.type, "thread.archive");
+    assert.strictEqual(unarchiveCommand.type, "thread.unarchive");
+  }),
+);
+
+it.effect("decodes archivedAt default for historical threads", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationThread({
+      id: "thread-1",
+      projectId: "project-1",
+      title: "Thread title",
+      model: "gpt-5.4",
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      latestTurn: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      deletedAt: null,
+      messages: [],
+      activities: [],
+      proposedPlans: [],
+      checkpoints: [],
+      session: null,
+    });
+
+    assert.strictEqual(parsed.archivedAt, null);
+  }),
+);
+
+it.effect("decodes archive payloads", () =>
+  Effect.gen(function* () {
+    const archived = yield* decodeThreadArchivedPayload({
+      threadId: "thread-1",
+      archivedAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const unarchived = yield* decodeThreadUnarchivedPayload({
+      threadId: "thread-1",
+      updatedAt: "2026-01-01T00:00:05.000Z",
+    });
+
+    assert.strictEqual(archived.threadId, "thread-1");
+    assert.strictEqual(archived.archivedAt, "2026-01-01T00:00:00.000Z");
+    assert.strictEqual(archived.updatedAt, "2026-01-01T00:00:00.000Z");
+    assert.strictEqual(unarchived.updatedAt, "2026-01-01T00:00:05.000Z");
   }),
 );

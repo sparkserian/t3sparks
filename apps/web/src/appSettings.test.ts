@@ -39,6 +39,7 @@ describe("getAppSettingsSnapshot", () => {
     expect(getAppSettingsSnapshot()).toMatchObject({
       projectHomePath: "",
       hasSeenOnboarding: false,
+      timestampFormat: "locale",
     });
   });
 
@@ -63,6 +64,7 @@ describe("getAppSettingsSnapshot", () => {
         JSON.stringify({
           projectHomePath: "/Users/william/Projects",
           hasSeenOnboarding: true,
+          timestampFormat: "24-hour",
           customInstructions: [
             {
               id: "review",
@@ -81,6 +83,7 @@ describe("getAppSettingsSnapshot", () => {
       expect(getAppSettingsSnapshot()).toMatchObject({
         projectHomePath: "/Users/william/Projects",
         hasSeenOnboarding: true,
+        timestampFormat: "24-hour",
         customInstructions: [
           {
             id: "review",

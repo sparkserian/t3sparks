@@ -1,26 +1,32 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
-import { type ProviderKind } from "@t3sparks/contracts";
+import { useCallback, useMemo, useState } from "react";
+import { ThreadId, type ProviderKind } from "@t3sparks/contracts";
 import { getModelOptions, normalizeModelSlug } from "@t3sparks/shared/model";
 import { ZapIcon } from "lucide-react";
 
 import {
   APP_SERVICE_TIER_OPTIONS,
+  APP_TIMESTAMP_FORMAT_OPTIONS,
+  type AppTimestampFormat,
   MAX_CUSTOM_MODEL_LENGTH,
   shouldShowFastTierIcon,
   useAppSettings,
 } from "../appSettings";
 import { isElectron } from "../env";
+import { useThreadActions } from "../hooks/useThreadActions";
 import { useTheme } from "../hooks/useTheme";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { ensureNativeApi } from "../nativeApi";
 import { requestOpenOnboarding } from "../onboarding";
+import { useStore } from "../store";
 import { preferredTerminalEditor } from "../terminal-links";
+import { formatRelativeTimeLabel } from "../timestampFormat";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Switch } from "../components/ui/switch";
+import { toastManager } from "../components/ui/toast";
 import { SidebarInset } from "~/components/ui/sidebar";
 
 const THEME_OPTIONS = [
@@ -106,6 +112,9 @@ function patchCustomModels(provider: ProviderKind, models: string[]) {
 function SettingsRouteView() {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { settings, defaults, updateSettings } = useAppSettings();
+  const threads = useStore((store) => store.threads);
+  const projects = useStore((store) => store.projects);
+  const { unarchiveThread, confirmAndDeleteThread } = useThreadActions();
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
   const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
@@ -124,6 +133,35 @@ function SettingsRouteView() {
   const codexHomePath = settings.codexHomePath;
   const codexServiceTier = settings.codexServiceTier;
   const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
+  const archivedThreadsByProject = useMemo(() => {
+    const projectNameById = new Map(projects.map((project) => [project.id, project.name] as const));
+    return threads
+      .filter((thread) => thread.archivedAt !== null)
+      .toSorted((left, right) => {
+        const leftArchivedAt = left.archivedAt ?? left.createdAt;
+        const rightArchivedAt = right.archivedAt ?? right.createdAt;
+        return rightArchivedAt.localeCompare(leftArchivedAt) || right.id.localeCompare(left.id);
+      })
+      .reduce<
+        Array<{
+          projectId: string;
+          projectName: string;
+          threads: typeof threads;
+        }>
+      >((groups, thread) => {
+        const existing = groups.find((group) => group.projectId === thread.projectId);
+        if (existing) {
+          existing.threads.push(thread);
+          return groups;
+        }
+        groups.push({
+          projectId: thread.projectId,
+          projectName: projectNameById.get(thread.projectId) ?? "Unknown project",
+          threads: [thread],
+        });
+        return groups;
+      }, []);
+  }, [projects, threads]);
 
   const openKeybindingsFile = useCallback(() => {
     if (!keybindingsConfigPath) return;
@@ -196,6 +234,36 @@ function SettingsRouteView() {
       }));
     },
     [settings, updateSettings],
+  );
+
+  const handleUnarchiveThread = useCallback(
+    async (threadId: ThreadId) => {
+      try {
+        await unarchiveThread(threadId);
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Failed to unarchive thread",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      }
+    },
+    [unarchiveThread],
+  );
+
+  const handleDeleteThread = useCallback(
+    async (threadId: ThreadId) => {
+      try {
+        await confirmAndDeleteThread(threadId);
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Failed to delete thread",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      }
+    },
+    [confirmAndDeleteThread],
   );
 
   return (
@@ -280,6 +348,50 @@ function SettingsRouteView() {
               <p className="mt-4 text-xs text-muted-foreground">
                 Active theme: <span className="font-medium text-foreground">{resolvedTheme}</span>
               </p>
+
+              <div className="mt-4 space-y-1">
+                <span className="text-xs font-medium text-foreground">Time format</span>
+                <Select
+                  items={APP_TIMESTAMP_FORMAT_OPTIONS.map((option) => ({
+                    label: option.label,
+                    value: option.value,
+                  }))}
+                    value={settings.timestampFormat}
+                    onValueChange={(value) => {
+                      if (!value) return;
+                      updateSettings({ timestampFormat: value as AppTimestampFormat });
+                    }}
+                  >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectPopup alignItemWithTrigger={false}>
+                    {APP_TIMESTAMP_FORMAT_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted-foreground">
+                    Controls absolute timestamps in chat messages, plans, and diffs.
+                  </span>
+                  {settings.timestampFormat !== defaults.timestampFormat ? (
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() =>
+                        updateSettings({
+                          timestampFormat: defaults.timestampFormat,
+                        })
+                      }
+                    >
+                      Restore default
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
             </section>
 
             <section className="rounded-2xl border border-border bg-card p-5">
@@ -628,6 +740,77 @@ function SettingsRouteView() {
                   <p className="text-xs text-destructive">{openKeybindingsError}</p>
                 ) : null}
               </div>
+            </section>
+
+            <section className="rounded-2xl border border-border bg-card p-5">
+              <div className="mb-4">
+                <h2 className="text-sm font-medium text-foreground">Archived threads</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Restore archived threads to the sidebar or permanently delete them.
+                </p>
+              </div>
+
+              {archivedThreadsByProject.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border bg-background px-3 py-4 text-xs text-muted-foreground">
+                  No archived threads yet.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {archivedThreadsByProject.map((group) => (
+                    <div
+                      key={group.projectId}
+                      className="rounded-xl border border-border bg-background/50 p-4"
+                    >
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div>
+                          <h3 className="text-sm font-medium text-foreground">{group.projectName}</h3>
+                          <p className="text-xs text-muted-foreground">
+                            {group.threads.length} archived thread{group.threads.length === 1 ? "" : "s"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        {group.threads.map((thread) => (
+                          <div
+                            key={thread.id}
+                            className="flex flex-col gap-3 rounded-lg border border-border bg-background px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium text-foreground">
+                                {thread.title}
+                              </p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Archived {formatRelativeTimeLabel(thread.archivedAt ?? thread.createdAt)}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                onClick={() => {
+                                  void handleUnarchiveThread(thread.id);
+                                }}
+                              >
+                                Unarchive
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="ghost"
+                                onClick={() => {
+                                  void handleDeleteThread(thread.id);
+                                }}
+                              >
+                                Delete
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             <section className="rounded-2xl border border-border bg-card p-5">
