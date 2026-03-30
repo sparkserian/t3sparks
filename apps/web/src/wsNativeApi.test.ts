@@ -462,4 +462,38 @@ describe("wsNativeApi", () => {
       { x: 20, y: 30 },
     );
   });
+
+  it("opens paths through the desktop bridge when available", async () => {
+    const openPath = vi.fn().mockResolvedValue(true);
+    Object.defineProperty(getWindowForTest(), "desktopBridge", {
+      configurable: true,
+      writable: true,
+      value: {
+        openPath,
+      },
+    });
+
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    const api = createWsNativeApi();
+    await api.shell.openPath("/tmp/test-file.tsx");
+
+    expect(openPath).toHaveBeenCalledWith("/tmp/test-file.tsx");
+  });
+
+  it("reveals paths through the desktop bridge when available", async () => {
+    const showItemInFolder = vi.fn().mockResolvedValue(true);
+    Object.defineProperty(getWindowForTest(), "desktopBridge", {
+      configurable: true,
+      writable: true,
+      value: {
+        showItemInFolder,
+      },
+    });
+
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    const api = createWsNativeApi();
+    await api.shell.showItemInFolder("/tmp/test-file.tsx");
+
+    expect(showItemInFolder).toHaveBeenCalledWith("/tmp/test-file.tsx");
+  });
 });

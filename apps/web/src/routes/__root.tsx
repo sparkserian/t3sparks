@@ -1,4 +1,4 @@
-import { ThreadId } from "@t3sparks/contracts";
+import { ThreadId, type ContextMenuItem } from "@t3sparks/contracts";
 import {
   Outlet,
   createRootRouteWithContext,
@@ -13,6 +13,12 @@ import { APP_DISPLAY_NAME } from "../branding";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
 import { serverConfigQueryOptions, serverQueryKeys } from "../lib/serverReactQuery";
+import {
+  openResolvedLinkTarget,
+  resolveLinkTarget,
+  stripPathLineColumnSuffix,
+  type ResolvedLinkTarget,
+} from "../linkTargets";
 import { readNativeApi } from "../nativeApi";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useStore } from "../store";
@@ -50,6 +56,7 @@ function RootRouteView() {
     <ToastProvider>
       <AnchoredToastProvider>
         <EventRouter />
+        <GlobalLinkHandlers />
         <DesktopProjectBootstrap />
         <Outlet />
       </AnchoredToastProvider>
@@ -292,6 +299,191 @@ function EventRouter() {
     setProjectExpanded,
     syncServerReadModel,
   ]);
+
+  return null;
+}
+
+type GlobalLinkMenuAction = "open" | "reveal" | "copy-link" | "copy-selection";
+
+function findClosestAnchor(target: EventTarget | null): HTMLAnchorElement | null {
+  if (!(target instanceof Element)) {
+    return null;
+  }
+  const anchor = target.closest("a[href]");
+  return anchor instanceof HTMLAnchorElement ? anchor : null;
+}
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (typeof navigator === "undefined" || navigator.clipboard?.writeText === undefined) {
+    throw new Error("Clipboard API unavailable.");
+  }
+  await navigator.clipboard.writeText(text);
+}
+
+function buildGlobalLinkMenuItems(
+  target: ResolvedLinkTarget,
+  hasSelection: boolean,
+): ReadonlyArray<ContextMenuItem<GlobalLinkMenuAction>> {
+  const openLabel =
+    target.kind === "external"
+      ? "Open Link"
+      : target.kind === "internal"
+        ? "Open"
+        : target.path === stripPathLineColumnSuffix(target.path)
+          ? "Open Path"
+          : "Open in Editor";
+
+  const items: ContextMenuItem<GlobalLinkMenuAction>[] = [
+    {
+      id: "open",
+      label: openLabel,
+    },
+  ];
+
+  if (target.kind === "path") {
+    items.push({ id: "reveal", label: "Reveal in Folder" });
+  }
+
+  items.push({
+    id: "copy-link",
+    label: target.kind === "path" ? "Copy Path" : "Copy Link",
+  });
+
+  if (hasSelection) {
+    items.push({ id: "copy-selection", label: "Copy Selection" });
+  }
+
+  return items;
+}
+
+function GlobalLinkHandlers() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
+
+    const openTarget = async (target: ResolvedLinkTarget): Promise<void> => {
+      if (target.kind === "internal") {
+        await navigate({ to: target.href });
+        return;
+      }
+
+      await openResolvedLinkTarget(api, target);
+    };
+
+    const handleLinkError = (error: unknown, title: string) => {
+      toastManager.add({
+        type: "error",
+        title,
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
+    };
+
+    const onDocumentClick = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0) {
+        return;
+      }
+
+      const anchor = findClosestAnchor(event.target);
+      if (!anchor || anchor.hasAttribute("download")) {
+        return;
+      }
+
+      const target = resolveLinkTarget(
+        anchor.getAttribute("href") ?? undefined,
+        anchor.dataset.t3sparksCwd,
+      );
+      if (!target) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      void openTarget(target).catch((error) => {
+        handleLinkError(
+          error,
+          target.kind === "external" ? "Unable to open link" : "Unable to open path",
+        );
+      });
+    };
+
+    const onDocumentContextMenu = (event: MouseEvent) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      const anchor = findClosestAnchor(event.target);
+      if (!anchor) {
+        return;
+      }
+
+      const target = resolveLinkTarget(
+        anchor.getAttribute("href") ?? undefined,
+        anchor.dataset.t3sparksCwd,
+      );
+      if (!target) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const selectionText = window.getSelection()?.toString().trim() ?? "";
+      const menuItems = buildGlobalLinkMenuItems(target, selectionText.length > 0);
+      void api.contextMenu
+        .show(menuItems, { x: event.clientX, y: event.clientY })
+        .then((action) => {
+          if (!action) {
+            return;
+          }
+
+          if (action === "open") {
+            return openTarget(target).catch((error) => {
+              handleLinkError(
+                error,
+                target.kind === "external" ? "Unable to open link" : "Unable to open path",
+              );
+            });
+          }
+
+          if (action === "reveal" && target.kind === "path") {
+            return api.shell
+              .showItemInFolder(stripPathLineColumnSuffix(target.path))
+              .catch((error) => {
+                handleLinkError(error, "Unable to reveal path");
+              });
+          }
+
+          if (action === "copy-selection") {
+            return copyTextToClipboard(selectionText).catch((error) => {
+              handleLinkError(error, "Unable to copy selection");
+            });
+          }
+
+          if (action === "copy-link") {
+            const value = target.kind === "path" ? target.path : target.href;
+            return copyTextToClipboard(value).catch((error) => {
+              handleLinkError(
+                error,
+                target.kind === "path" ? "Unable to copy path" : "Unable to copy link",
+              );
+            });
+          }
+        })
+        .catch(() => undefined);
+    };
+
+    document.addEventListener("click", onDocumentClick);
+    document.addEventListener("contextmenu", onDocumentContextMenu);
+    return () => {
+      document.removeEventListener("click", onDocumentClick);
+      document.removeEventListener("contextmenu", onDocumentContextMenu);
+    };
+  }, [navigate]);
 
   return null;
 }

@@ -4,7 +4,17 @@ import * as FS from "node:fs";
 import * as OS from "node:os";
 import * as Path from "node:path";
 
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeImage,
+  protocol,
+  shell,
+} from "electron";
 import type { MenuItemConstructorOptions } from "electron";
 import * as Effect from "effect/Effect";
 import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3sparks/contracts";
@@ -38,6 +48,8 @@ const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
+const OPEN_PATH_CHANNEL = "desktop:open-path";
+const SHOW_ITEM_IN_FOLDER_CHANNEL = "desktop:show-item-in-folder";
 const MENU_ACTION_CHANNEL = "desktop:menu-action";
 const UPDATE_STATE_CHANNEL = "desktop:update-state";
 const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
@@ -108,6 +120,34 @@ function formatErrorMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function normalizeExternalUrl(rawUrl: unknown): string | null {
+  if (typeof rawUrl !== "string" || rawUrl.length === 0) {
+    return null;
+  }
+
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+
+  if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
+    return null;
+  }
+
+  return parsedUrl.toString();
+}
+
+function normalizeDesktopPath(rawPath: unknown): string | null {
+  if (typeof rawPath !== "string") {
+    return null;
+  }
+
+  const trimmedPath = rawPath.trim();
+  return trimmedPath.length > 0 ? trimmedPath : null;
 }
 
 function writeDesktopStreamChunk(
@@ -1028,23 +1068,43 @@ function registerIpcHandlers(): void {
 
   ipcMain.removeHandler(OPEN_EXTERNAL_CHANNEL);
   ipcMain.handle(OPEN_EXTERNAL_CHANNEL, async (_event, rawUrl: unknown) => {
-    if (typeof rawUrl !== "string" || rawUrl.length === 0) {
+    const targetUrl = normalizeExternalUrl(rawUrl);
+    if (!targetUrl) {
       return false;
     }
 
-    let parsedUrl: URL;
     try {
-      parsedUrl = new URL(rawUrl);
+      await shell.openExternal(targetUrl);
+      return true;
     } catch {
       return false;
     }
+  });
 
-    if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
+  ipcMain.removeHandler(OPEN_PATH_CHANNEL);
+  ipcMain.handle(OPEN_PATH_CHANNEL, async (_event, rawPath: unknown) => {
+    const targetPath = normalizeDesktopPath(rawPath);
+    if (!targetPath) {
       return false;
     }
 
     try {
-      await shell.openExternal(parsedUrl.toString());
+      const errorMessage = await shell.openPath(targetPath);
+      return errorMessage.length === 0;
+    } catch {
+      return false;
+    }
+  });
+
+  ipcMain.removeHandler(SHOW_ITEM_IN_FOLDER_CHANNEL);
+  ipcMain.handle(SHOW_ITEM_IN_FOLDER_CHANNEL, async (_event, rawPath: unknown) => {
+    const targetPath = normalizeDesktopPath(rawPath);
+    if (!targetPath) {
+      return false;
+    }
+
+    try {
+      shell.showItemInFolder(targetPath);
       return true;
     } catch {
       return false;
@@ -1110,6 +1170,50 @@ function createWindow(): BrowserWindow {
   });
 
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.webContents.on("context-menu", (_event, params) => {
+    const template: MenuItemConstructorOptions[] = [];
+    const targetUrl = normalizeExternalUrl(params.linkURL);
+    const hasSelection = params.selectionText.trim().length > 0;
+
+    if (targetUrl) {
+      template.push({
+        label: "Open Link",
+        click: () => {
+          void shell.openExternal(targetUrl);
+        },
+      });
+      template.push({
+        label: "Copy Link",
+        click: () => {
+          clipboard.writeText(targetUrl);
+        },
+      });
+    }
+
+    if (params.isEditable) {
+      if (template.length > 0) template.push({ type: "separator" });
+      if (params.editFlags.canUndo) template.push({ role: "undo" });
+      if (params.editFlags.canRedo) template.push({ role: "redo" });
+      if (params.editFlags.canUndo || params.editFlags.canRedo) {
+        template.push({ type: "separator" });
+      }
+      if (params.editFlags.canCut) template.push({ role: "cut" });
+      if (params.editFlags.canCopy) template.push({ role: "copy" });
+      if (params.editFlags.canPaste) template.push({ role: "paste" });
+      if (params.editFlags.canSelectAll) template.push({ role: "selectAll" });
+    } else if (hasSelection) {
+      if (template.length > 0) template.push({ type: "separator" });
+      template.push({ role: "copy" });
+      template.push({ role: "selectAll" });
+    }
+
+    if (template.length === 0) {
+      template.push({ role: "copy" });
+      template.push({ role: "selectAll" });
+    }
+
+    Menu.buildFromTemplate(template).popup({ window });
+  });
   window.on("page-title-updated", (event) => {
     event.preventDefault();
     window.setTitle(APP_DISPLAY_NAME);

@@ -90,6 +90,8 @@ export interface DesktopBridge {
     position?: { x: number; y: number },
   ) => Promise<T | null>;
   openExternal: (url: string) => Promise<boolean>;
+  openPath: (path: string) => Promise<boolean>;
+  showItemInFolder: (path: string) => Promise<boolean>;
   onMenuAction: (listener: (action: string) => void) => () => void;
   getUpdateState: () => Promise<DesktopUpdateState>;
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
@@ -119,6 +121,8 @@ export interface NativeApi {
   shell: {
     openInEditor: (cwd: string, editor: EditorId) => Promise<void>;
     openExternal: (url: string) => Promise<void>;
+    openPath: (path: string) => Promise<void>;
+    showItemInFolder: (path: string) => Promise<void>;
   };
   git: {
     // Existing branch/worktree API

@@ -1,4 +1,5 @@
 import {
+  type EditorId,
   OrchestrationEvent,
   ORCHESTRATION_WS_CHANNELS,
   ORCHESTRATION_WS_METHODS,
@@ -20,6 +21,7 @@ const welcomeListeners = new Set<(payload: WsWelcomePayload) => void>();
 const serverConfigUpdatedListeners = new Set<(payload: ServerConfigUpdatedPayload) => void>();
 let lastWelcome: WsWelcomePayload | null = null;
 let lastServerConfigUpdated: ServerConfigUpdatedPayload | null = null;
+const FILE_MANAGER_EDITOR: EditorId = "file-manager";
 
 const decodeAndWarnOnFailure = <T>(
   schema: Schema.Schema<T> & { readonly DecodingServices: never },
@@ -166,6 +168,34 @@ export function createWsNativeApi(): NativeApi {
         // Some mobile browsers can return null here even when the tab opens.
         // Avoid false negatives and let the browser handle popup policy.
         window.open(url, "_blank", "noopener,noreferrer");
+      },
+      openPath: async (path) => {
+        if (window.desktopBridge) {
+          const opened = await window.desktopBridge.openPath(path);
+          if (!opened) {
+            throw new Error("Unable to open path.");
+          }
+          return;
+        }
+
+        await transport.request(WS_METHODS.shellOpenInEditor, {
+          cwd: path,
+          editor: FILE_MANAGER_EDITOR,
+        });
+      },
+      showItemInFolder: async (path) => {
+        if (window.desktopBridge) {
+          const revealed = await window.desktopBridge.showItemInFolder(path);
+          if (!revealed) {
+            throw new Error("Unable to reveal path.");
+          }
+          return;
+        }
+
+        await transport.request(WS_METHODS.shellOpenInEditor, {
+          cwd: path,
+          editor: FILE_MANAGER_EDITOR,
+        });
       },
     },
     convex: {
