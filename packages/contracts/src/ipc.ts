@@ -93,6 +93,7 @@ export interface DesktopBridge {
   openPath: (path: string) => Promise<boolean>;
   showItemInFolder: (path: string) => Promise<boolean>;
   onMenuAction: (listener: (action: string) => void) => () => void;
+  checkForUpdates: () => Promise<DesktopUpdateActionResult>;
   getUpdateState: () => Promise<DesktopUpdateState>;
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;

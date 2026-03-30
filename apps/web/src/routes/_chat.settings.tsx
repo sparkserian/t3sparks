@@ -13,7 +13,16 @@ import {
   shouldShowFastTierIcon,
   useAppSettings,
 } from "../appSettings";
+import {
+  getDesktopUpdateActionError,
+  getDesktopUpdatePrimaryActionLabel,
+  getDesktopUpdateSummary,
+  isDesktopUpdateCheckActionDisabled,
+  resolveDesktopUpdateButtonAction,
+  shouldShowDesktopUpdateCheckAction,
+} from "../components/desktopUpdate.logic";
 import { isElectron } from "../env";
+import { useDesktopUpdate } from "../hooks/useDesktopUpdate";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useTheme } from "../hooks/useTheme";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
@@ -112,6 +121,13 @@ function patchCustomModels(provider: ProviderKind, models: string[]) {
 function SettingsRouteView() {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { settings, defaults, updateSettings } = useAppSettings();
+  const {
+    state: desktopUpdateState,
+    isSupported: isDesktopUpdateSupported,
+    checkForUpdates,
+    downloadUpdate,
+    installUpdate,
+  } = useDesktopUpdate();
   const threads = useStore((store) => store.threads);
   const projects = useStore((store) => store.projects);
   const { unarchiveThread, confirmAndDeleteThread } = useThreadActions();
@@ -266,6 +282,70 @@ function SettingsRouteView() {
     [confirmAndDeleteThread],
   );
 
+  const desktopUpdateSummary = desktopUpdateState
+    ? getDesktopUpdateSummary(desktopUpdateState)
+    : null;
+  const desktopUpdatePrimaryAction = desktopUpdateState
+    ? resolveDesktopUpdateButtonAction(desktopUpdateState)
+    : "none";
+  const desktopUpdatePrimaryActionLabel = desktopUpdateState
+    ? getDesktopUpdatePrimaryActionLabel(desktopUpdateState)
+    : null;
+  const showDesktopUpdateCheckAction = shouldShowDesktopUpdateCheckAction(desktopUpdateState);
+  const desktopUpdateCheckActionDisabled = isDesktopUpdateCheckActionDisabled(desktopUpdateState);
+  const desktopUpdateProgressPercent =
+    typeof desktopUpdateState?.downloadPercent === "number"
+      ? Math.max(2, Math.min(100, Math.floor(desktopUpdateState.downloadPercent)))
+      : null;
+
+  const handleCheckForUpdates = useCallback(async () => {
+    const result = await checkForUpdates();
+    if (!result) return;
+    const actionError = getDesktopUpdateActionError(result);
+    if (!actionError) return;
+    toastManager.add({
+      type: "error",
+      title: "Could not check for updates",
+      description: actionError,
+    });
+  }, [checkForUpdates]);
+
+  const handleDesktopUpdatePrimaryAction = useCallback(async () => {
+    if (!desktopUpdateState) return;
+
+    if (desktopUpdatePrimaryAction === "download") {
+      const result = await downloadUpdate();
+      if (!result) return;
+      if (result.completed) {
+        toastManager.add({
+          type: "success",
+          title: "Update downloaded",
+          description: "Restart the app to install the update.",
+        });
+      }
+      const actionError = getDesktopUpdateActionError(result);
+      if (!actionError) return;
+      toastManager.add({
+        type: "error",
+        title: "Could not download update",
+        description: actionError,
+      });
+      return;
+    }
+
+    if (desktopUpdatePrimaryAction === "install") {
+      const result = await installUpdate();
+      if (!result) return;
+      const actionError = getDesktopUpdateActionError(result);
+      if (!actionError) return;
+      toastManager.add({
+        type: "error",
+        title: "Could not install update",
+        description: actionError,
+      });
+    }
+  }, [desktopUpdatePrimaryAction, desktopUpdateState, downloadUpdate, installUpdate]);
+
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground isolate">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
@@ -285,6 +365,126 @@ function SettingsRouteView() {
                 Configure app-level preferences for this device.
               </p>
             </header>
+
+            {isElectron ? (
+              <section className="rounded-2xl border border-border bg-card p-5">
+                <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h2 className="text-sm font-medium text-foreground">App Updates</h2>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Published GitHub releases are checked automatically after launch and while the
+                      app is running.
+                    </p>
+                  </div>
+                  {desktopUpdateState ? (
+                    <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                      Current version {desktopUpdateState.currentVersion}
+                    </span>
+                  ) : null}
+                </div>
+
+                {isDesktopUpdateSupported && desktopUpdateState && desktopUpdateSummary ? (
+                  <div className="space-y-4">
+                    <div className="rounded-xl border border-border bg-background/60 p-4">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-foreground">
+                            {desktopUpdateSummary.title}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {desktopUpdateSummary.description}
+                          </p>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {desktopUpdateState.checkedAt
+                            ? `Last checked ${formatRelativeTimeLabel(desktopUpdateState.checkedAt)}`
+                            : "Not checked yet"}
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                        <div className="rounded-lg border border-border bg-card px-3 py-2">
+                          <div className="text-[11px] uppercase tracking-wide text-muted-foreground/70">
+                            Installed
+                          </div>
+                          <div className="mt-1 text-sm font-medium text-foreground">
+                            {desktopUpdateState.currentVersion}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-border bg-card px-3 py-2">
+                          <div className="text-[11px] uppercase tracking-wide text-muted-foreground/70">
+                            Newest found
+                          </div>
+                          <div className="mt-1 text-sm font-medium text-foreground">
+                            {desktopUpdateState.downloadedVersion ??
+                              desktopUpdateState.availableVersion ??
+                              desktopUpdateState.currentVersion}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-border bg-card px-3 py-2">
+                          <div className="text-[11px] uppercase tracking-wide text-muted-foreground/70">
+                            Status
+                          </div>
+                          <div className="mt-1 text-sm font-medium capitalize text-foreground">
+                            {desktopUpdateState.status.replaceAll("-", " ")}
+                          </div>
+                        </div>
+                      </div>
+
+                      {desktopUpdateState.status === "downloading" ? (
+                        <div className="mt-4 space-y-2">
+                          <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                            <span>Download progress</span>
+                            <span>{desktopUpdateProgressPercent ?? 0}%</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-muted">
+                            <div
+                              className="h-full rounded-full bg-sky-500 transition-[width]"
+                              style={{ width: `${desktopUpdateProgressPercent ?? 0}%` }}
+                            />
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {desktopUpdateState.message ? (
+                        <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/8 px-3 py-2 text-xs text-rose-700 dark:text-rose-200">
+                          {desktopUpdateState.message}
+                        </div>
+                      ) : null}
+
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                        {showDesktopUpdateCheckAction ? (
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              void handleCheckForUpdates();
+                            }}
+                            disabled={desktopUpdateCheckActionDisabled}
+                          >
+                            {desktopUpdateCheckActionDisabled ? "Checking..." : "Check for updates"}
+                          </Button>
+                        ) : null}
+
+                        {desktopUpdatePrimaryAction !== "none" && desktopUpdatePrimaryActionLabel ? (
+                          <Button
+                            onClick={() => {
+                              void handleDesktopUpdatePrimaryAction();
+                            }}
+                            disabled={desktopUpdateState.status === "downloading"}
+                          >
+                            {desktopUpdatePrimaryActionLabel}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-border bg-background/60 p-4 text-xs text-muted-foreground">
+                    Automatic updates are only available in packaged desktop builds.
+                  </div>
+                )}
+              </section>
+            ) : null}
 
             <section className="rounded-2xl border border-border bg-card p-5">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

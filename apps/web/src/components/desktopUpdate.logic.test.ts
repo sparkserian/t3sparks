@@ -4,9 +4,13 @@ import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3sparks/co
 import {
   getDesktopUpdateActionError,
   getDesktopUpdateButtonTooltip,
+  getDesktopUpdatePrimaryActionLabel,
+  getDesktopUpdateSummary,
+  isDesktopUpdateCheckActionDisabled,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
   shouldHighlightDesktopUpdateError,
+  shouldShowDesktopUpdateCheckAction,
   shouldShowDesktopUpdateButton,
   shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
@@ -171,5 +175,83 @@ describe("desktop update UI helpers", () => {
         canRetry: true,
       }),
     ).toBe(false);
+  });
+
+  it("builds a downloading summary with progress details", () => {
+    const summary = getDesktopUpdateSummary({
+      ...baseState,
+      status: "downloading",
+      availableVersion: "1.1.0",
+      downloadPercent: 48.9,
+    });
+    expect(summary.title).toContain("48%");
+    expect(summary.description).toContain("background");
+  });
+
+  it("shows check action only when not already downloading or ready to install", () => {
+    expect(
+      shouldShowDesktopUpdateCheckAction({
+        ...baseState,
+        status: "up-to-date",
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowDesktopUpdateCheckAction({
+        ...baseState,
+        status: "downloading",
+        availableVersion: "1.1.0",
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowDesktopUpdateCheckAction({
+        ...baseState,
+        status: "downloaded",
+        downloadedVersion: "1.1.0",
+        availableVersion: "1.1.0",
+      }),
+    ).toBe(false);
+  });
+
+  it("disables manual checks while a check is already running", () => {
+    expect(
+      isDesktopUpdateCheckActionDisabled({
+        ...baseState,
+        status: "checking",
+      }),
+    ).toBe(true);
+    expect(
+      isDesktopUpdateCheckActionDisabled({
+        ...baseState,
+        status: "up-to-date",
+      }),
+    ).toBe(false);
+  });
+
+  it("returns action labels for download and install flows", () => {
+    expect(
+      getDesktopUpdatePrimaryActionLabel({
+        ...baseState,
+        status: "available",
+        availableVersion: "1.1.0",
+      }),
+    ).toBe("Download 1.1.0");
+    expect(
+      getDesktopUpdatePrimaryActionLabel({
+        ...baseState,
+        status: "error",
+        availableVersion: "1.1.0",
+        errorContext: "download",
+        canRetry: true,
+      }),
+    ).toBe("Retry download");
+    expect(
+      getDesktopUpdatePrimaryActionLabel({
+        ...baseState,
+        status: "downloaded",
+        availableVersion: "1.1.0",
+        downloadedVersion: "1.1.0",
+        canRetry: true,
+      }),
+    ).toBe("Install and restart");
   });
 });

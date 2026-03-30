@@ -11,7 +11,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_RUNTIME_MODE,
   DEFAULT_MODEL_BY_PROVIDER,
-  type DesktopUpdateState,
   ProjectId,
   ThreadId,
   type GitStatusResult,
@@ -29,6 +28,7 @@ import { type Thread } from "../types";
 import { derivePendingApprovals } from "../session-logic";
 import { gitStatusQueryOptions } from "../lib/gitReactQuery";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
+import { useDesktopUpdate } from "../hooks/useDesktopUpdate";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { requestOpenOnboarding } from "../onboarding";
 import { readNativeApi } from "../nativeApi";
@@ -299,7 +299,11 @@ export default function Sidebar() {
   >(() => new Set());
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
-  const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
+  const {
+    state: desktopUpdateState,
+    downloadUpdate,
+    installUpdate,
+  } = useDesktopUpdate();
   const announcedAvailableUpdateVersionsRef = useRef(new Set<string>());
   const announcedDownloadedUpdateVersionsRef = useRef(new Set<string>());
   const pendingApprovalByThreadId = useMemo(() => {
@@ -769,45 +773,7 @@ export default function Sidebar() {
   }, [getDraftThread, handleNewThread, keybindings, projects, routeThreadId, threads]);
 
   useEffect(() => {
-    if (!isElectron) return;
-    const bridge = window.desktopBridge;
-    if (
-      !bridge ||
-      typeof bridge.getUpdateState !== "function" ||
-      typeof bridge.onUpdateState !== "function"
-    ) {
-      return;
-    }
-
-    let disposed = false;
-    let receivedSubscriptionUpdate = false;
-    const unsubscribe = bridge.onUpdateState((nextState) => {
-      if (disposed) return;
-      receivedSubscriptionUpdate = true;
-      setDesktopUpdateState(nextState);
-    });
-
-    void bridge
-      .getUpdateState()
-      .then((nextState) => {
-        if (disposed || receivedSubscriptionUpdate) return;
-        setDesktopUpdateState(nextState);
-      })
-      .catch(() => undefined);
-
-    return () => {
-      disposed = true;
-      unsubscribe();
-    };
-  }, []);
-
-  useEffect(() => {
     if (!isElectron || !desktopUpdateState) {
-      return;
-    }
-
-    const bridge = window.desktopBridge;
-    if (!bridge) {
       return;
     }
 
@@ -843,9 +809,9 @@ export default function Sidebar() {
         actionProps: {
           children: "Restart",
           onClick: () => {
-            void bridge
-              .installUpdate()
+            void installUpdate()
               .then((result) => {
+                if (!result) return;
                 if (!shouldToastDesktopUpdateActionResult(result)) return;
                 const actionError = getDesktopUpdateActionError(result);
                 if (!actionError) return;
@@ -867,7 +833,7 @@ export default function Sidebar() {
         },
       });
     }
-  }, [desktopUpdateState]);
+  }, [desktopUpdateState, installUpdate]);
 
   const showDesktopUpdateButton = isElectron && shouldShowDesktopUpdateButton(desktopUpdateState);
 
@@ -898,14 +864,13 @@ export default function Sidebar() {
   );
 
   const handleDesktopUpdateButtonClick = useCallback(() => {
-    const bridge = window.desktopBridge;
-    if (!bridge || !desktopUpdateState) return;
+    if (!desktopUpdateState) return;
     if (desktopUpdateButtonDisabled || desktopUpdateButtonAction === "none") return;
 
     if (desktopUpdateButtonAction === "download") {
-      void bridge
-        .downloadUpdate()
+      void downloadUpdate()
         .then((result) => {
+          if (!result) return;
           if (result.completed) {
             toastManager.add({
               type: "success",
@@ -933,9 +898,9 @@ export default function Sidebar() {
     }
 
     if (desktopUpdateButtonAction === "install") {
-      void bridge
-        .installUpdate()
+      void installUpdate()
         .then((result) => {
+          if (!result) return;
           if (!shouldToastDesktopUpdateActionResult(result)) return;
           const actionError = getDesktopUpdateActionError(result);
           if (!actionError) return;
@@ -953,7 +918,13 @@ export default function Sidebar() {
           });
         });
     }
-  }, [desktopUpdateButtonAction, desktopUpdateButtonDisabled, desktopUpdateState]);
+  }, [
+    desktopUpdateButtonAction,
+    desktopUpdateButtonDisabled,
+    desktopUpdateState,
+    downloadUpdate,
+    installUpdate,
+  ]);
 
   const expandThreadListForProject = useCallback((projectId: ProjectId) => {
     setExpandedThreadListsByProject((current) => {

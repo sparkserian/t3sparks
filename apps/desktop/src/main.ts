@@ -52,6 +52,7 @@ const OPEN_PATH_CHANNEL = "desktop:open-path";
 const SHOW_ITEM_IN_FOLDER_CHANNEL = "desktop:show-item-in-folder";
 const MENU_ACTION_CHANNEL = "desktop:menu-action";
 const UPDATE_STATE_CHANNEL = "desktop:update-state";
+const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
@@ -69,6 +70,7 @@ const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_FILE_MAX_FILES = 10;
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
+const AUTO_UPDATE_WARMUP_RETRY_DELAY_MS = 5 * 60 * 1000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
@@ -263,6 +265,7 @@ function getDestructiveMenuIcon(): Electron.NativeImage | undefined {
 }
 let updatePollTimer: ReturnType<typeof setInterval> | null = null;
 let updateStartupTimer: ReturnType<typeof setTimeout> | null = null;
+let updateWarmupRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let updateCheckInFlight = false;
 let updateDownloadInFlight = false;
 let updaterConfigured = false;
@@ -638,6 +641,10 @@ function clearUpdatePollTimer(): void {
     clearTimeout(updateStartupTimer);
     updateStartupTimer = null;
   }
+  if (updateWarmupRetryTimer) {
+    clearTimeout(updateWarmupRetryTimer);
+    updateWarmupRetryTimer = null;
+  }
   if (updatePollTimer) {
     clearInterval(updatePollTimer);
     updatePollTimer = null;
@@ -668,13 +675,17 @@ function shouldEnableAutoUpdates(): boolean {
   );
 }
 
-async function checkForUpdates(reason: string): Promise<void> {
-  if (isQuitting || !updaterConfigured || updateCheckInFlight) return;
+async function checkForUpdates(
+  reason: string,
+): Promise<{ accepted: boolean; completed: boolean }> {
+  if (isQuitting || !updaterConfigured || updateCheckInFlight) {
+    return { accepted: false, completed: false };
+  }
   if (updateState.status === "downloading" || updateState.status === "downloaded") {
     console.info(
       `[desktop-updater] Skipping update check (${reason}) while status=${updateState.status}.`,
     );
-    return;
+    return { accepted: false, completed: false };
   }
   updateCheckInFlight = true;
   setUpdateState(reduceDesktopUpdateStateOnCheckStart(updateState, new Date().toISOString()));
@@ -682,10 +693,12 @@ async function checkForUpdates(reason: string): Promise<void> {
 
   try {
     await autoUpdater.checkForUpdates();
+    return { accepted: true, completed: true };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     setUpdateState(reduceDesktopUpdateStateOnCheckFailure(updateState, message, new Date().toISOString()));
     console.error(`[desktop-updater] Failed to check for updates: ${message}`);
+    return { accepted: true, completed: false };
   } finally {
     updateCheckInFlight = false;
   }
@@ -830,6 +843,12 @@ function configureAutoUpdater(): void {
     void checkForUpdates("startup");
   }, AUTO_UPDATE_STARTUP_DELAY_MS);
   updateStartupTimer.unref();
+
+  updateWarmupRetryTimer = setTimeout(() => {
+    updateWarmupRetryTimer = null;
+    void checkForUpdates("warmup-retry");
+  }, AUTO_UPDATE_WARMUP_RETRY_DELAY_MS);
+  updateWarmupRetryTimer.unref();
 
   updatePollTimer = setInterval(() => {
     void checkForUpdates("poll");
@@ -1118,6 +1137,16 @@ function registerIpcHandlers(): void {
     } catch {
       return false;
     }
+  });
+
+  ipcMain.removeHandler(UPDATE_CHECK_CHANNEL);
+  ipcMain.handle(UPDATE_CHECK_CHANNEL, async () => {
+    const result = await checkForUpdates("manual");
+    return {
+      accepted: result.accepted,
+      completed: result.completed,
+      state: updateState,
+    } satisfies DesktopUpdateActionResult;
   });
 
   ipcMain.removeHandler(UPDATE_GET_STATE_CHANNEL);
