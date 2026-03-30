@@ -38,7 +38,7 @@ export function isDesktopUpdateButtonDisabled(state: DesktopUpdateState | null):
 
 export function getDesktopUpdateButtonTooltip(state: DesktopUpdateState): string {
   if (state.status === "available") {
-    return `Update ${state.availableVersion ?? "available"} ready to download`;
+    return `Update ${state.availableVersion ?? "available"} found. Downloading in the background.`;
   }
   if (state.status === "downloading") {
     const progress =

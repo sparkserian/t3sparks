@@ -821,34 +821,9 @@ export default function Sidebar() {
       toastManager.add({
         type: "info",
         title: "Update available",
-        description: `Version ${availableVersion} is ready to download.`,
+        description: `Version ${availableVersion} is downloading in the background.`,
         timeout: 0,
         data: { dismissAfterVisibleMs: 15_000 },
-        actionProps: {
-          children: "Download",
-          onClick: () => {
-            void bridge
-              .downloadUpdate()
-              .then((result) => {
-                if (!shouldToastDesktopUpdateActionResult(result)) return;
-                const actionError = getDesktopUpdateActionError(result);
-                if (!actionError) return;
-                toastManager.add({
-                  type: "error",
-                  title: "Could not download update",
-                  description: actionError,
-                });
-              })
-              .catch((error) => {
-                toastManager.add({
-                  type: "error",
-                  title: "Could not start update download",
-                  description:
-                    error instanceof Error ? error.message : "An unexpected error occurred.",
-                });
-              });
-          },
-        },
       });
     }
 

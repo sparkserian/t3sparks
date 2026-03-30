@@ -19,6 +19,7 @@ const PLATFORM_CONFIG = {
     ],
     supportsLocalPublish: () => process.platform === "darwin" && process.arch === "arm64",
     workflowPlatform: "mac-arm64",
+    workflowJobName: "Build macOS arm64",
   },
   win: {
     expectedAssetPatterns: [/\.exe$/u, /\.blockmap$/u, /^latest\.yml$/u],
@@ -36,6 +37,7 @@ const PLATFORM_CONFIG = {
     ],
     supportsLocalPublish: () => process.platform === "win32",
     workflowPlatform: "win",
+    workflowJobName: "Build Windows x64",
   },
   linux: {
     expectedAssetPatterns: [/\.AppImage$/u, /^latest-linux\.yml$/u],
@@ -53,6 +55,7 @@ const PLATFORM_CONFIG = {
     ],
     supportsLocalPublish: () => process.platform === "linux",
     workflowPlatform: "linux",
+    workflowJobName: "Build Linux x64",
   },
 };
 
@@ -199,7 +202,13 @@ async function dispatchWorkflow(token, repository, version, platform) {
   );
 }
 
-async function findTriggeredRun(token, repository, triggeredAfterUnixMs) {
+async function runHasExpectedJob(token, repository, runId, expectedJobName) {
+  const data = await githubRequest(token, `/repos/${repository.slug}/actions/runs/${runId}/jobs?per_page=20`);
+  const jobs = Array.isArray(data?.jobs) ? data.jobs : [];
+  return jobs.some((job) => typeof job?.name === "string" && job.name === expectedJobName);
+}
+
+async function findTriggeredRun(token, repository, triggeredAfterUnixMs, expectedJobName) {
   const deadline = Date.now() + 90_000;
 
   while (Date.now() < deadline) {
@@ -215,14 +224,19 @@ async function findTriggeredRun(token, repository, triggeredAfterUnixMs) {
       const createdAt = Date.parse(candidate.created_at);
       return Number.isFinite(createdAt) && createdAt >= triggeredAfterUnixMs;
     });
-    if (run) {
-      return run;
+    for (const candidate of runs) {
+      if (typeof candidate?.id !== "number") {
+        continue;
+      }
+      if (await runHasExpectedJob(token, repository, candidate.id, expectedJobName)) {
+        return candidate;
+      }
     }
 
     sleep(2_000);
   }
 
-  fail("Could not find the triggered GitHub Actions run.");
+  fail(`Could not find the triggered GitHub Actions run for job '${expectedJobName}'.`);
 }
 
 async function waitForRunCompletion(token, repository, runId) {
@@ -286,7 +300,12 @@ async function publishViaActions(platform, token, repository, version, tag) {
   console.log(`[release] Triggering ${platform} release workflow for ${tag}...`);
   const triggerStartedAt = Date.now() - 2_000;
   await dispatchWorkflow(token, repository, version, PLATFORM_CONFIG[platform].workflowPlatform);
-  const runInfo = await findTriggeredRun(token, repository, triggerStartedAt);
+  const runInfo = await findTriggeredRun(
+    token,
+    repository,
+    triggerStartedAt,
+    PLATFORM_CONFIG[platform].workflowJobName,
+  );
   console.log(`[release] Watching workflow run ${runInfo.id}...`);
   console.log(`[release] Workflow URL: ${runInfo.html_url}`);
   await waitForRunCompletion(token, repository, runInfo.id);

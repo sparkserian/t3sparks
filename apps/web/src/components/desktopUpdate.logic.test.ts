@@ -29,6 +29,7 @@ describe("desktop update button state", () => {
     const state: DesktopUpdateState = { ...baseState, status: "available", availableVersion: "1.1.0" };
     expect(shouldShowDesktopUpdateButton(state)).toBe(true);
     expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
+    expect(getDesktopUpdateButtonTooltip(state)).toContain("background");
   });
 
   it("keeps retry action available after a download error", () => {

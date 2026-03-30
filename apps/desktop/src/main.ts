@@ -691,13 +691,19 @@ async function checkForUpdates(reason: string): Promise<void> {
   }
 }
 
-async function downloadAvailableUpdate(): Promise<{ accepted: boolean; completed: boolean }> {
+async function downloadAvailableUpdate(
+  trigger: "manual" | "background" = "manual",
+): Promise<{ accepted: boolean; completed: boolean }> {
   if (!updaterConfigured || updateDownloadInFlight || updateState.status !== "available") {
     return { accepted: false, completed: false };
   }
   updateDownloadInFlight = true;
   setUpdateState(reduceDesktopUpdateStateOnDownloadStart(updateState));
-  console.info("[desktop-updater] Downloading update...");
+  console.info(
+    trigger === "background"
+      ? "[desktop-updater] Downloading update in the background..."
+      : "[desktop-updater] Downloading update...",
+  );
 
   try {
     await autoUpdater.downloadUpdate();
@@ -772,9 +778,12 @@ function configureAutoUpdater(): void {
     console.info("[desktop-updater] Looking for updates...");
   });
   autoUpdater.on("update-available", (info) => {
-    setUpdateState(reduceDesktopUpdateStateOnUpdateAvailable(updateState, info.version, new Date().toISOString()));
+    setUpdateState(
+      reduceDesktopUpdateStateOnUpdateAvailable(updateState, info.version, new Date().toISOString()),
+    );
     lastLoggedDownloadMilestone = -1;
     console.info(`[desktop-updater] Update available: ${info.version}`);
+    void downloadAvailableUpdate("background");
   });
   autoUpdater.on("update-not-available", () => {
     setUpdateState(reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()));
