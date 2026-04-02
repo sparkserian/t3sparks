@@ -3,8 +3,15 @@ import { it } from "@effect/vitest";
 import { Effect, Layer, Sink, Stream } from "effect";
 import * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/unstable/process";
+import { expect } from "vitest";
 
-import { checkCodexProviderStatus, parseAuthStatusFromOutput } from "./ProviderHealth";
+import {
+  checkCodexProviderStatus,
+  makeCheckCopilotProviderStatus,
+  mapCopilotModel,
+  mapCopilotQuotaSnapshots,
+  parseAuthStatusFromOutput,
+} from "./ProviderHealth";
 
 // ── Test helpers ────────────────────────────────────────────────────
 
@@ -161,6 +168,77 @@ it.effect("returns warning when login status command is unsupported", () =>
   ),
 );
 
+it.effect("returns authenticated copilot status with models and quota metadata", () =>
+  Effect.gen(function* () {
+    const status = yield* makeCheckCopilotProviderStatus(async () => ({
+      status: {
+        version: "1.0.7",
+      },
+      authStatus: {
+        isAuthenticated: true,
+      },
+      models: [
+        {
+          id: "gpt-5.4",
+          name: "GPT-5.4",
+          supportedReasoningEfforts: ["medium", "high"],
+          defaultReasoningEffort: "high",
+          billing: { multiplier: 2 },
+        } as never,
+      ],
+      quota: {
+        quotaSnapshots: {
+          premium_interactions: {
+            entitlementRequests: 100,
+            usedRequests: 25,
+            remainingPercentage: 75,
+            overage: 0,
+            overageAllowedWithExhaustedQuota: false,
+            resetDate: "2026-04-01T00:00:00.000Z",
+          },
+        },
+      },
+    }));
+    assert.strictEqual(status.provider, "githubCopilot");
+    assert.strictEqual(status.status, "ready");
+    assert.strictEqual(status.available, true);
+    assert.strictEqual(status.authStatus, "authenticated");
+    assert.deepEqual(status.models, [
+      {
+        id: "copilot:gpt-5.4",
+        name: "GPT-5.4",
+        supportsReasoningEffort: true,
+        supportedReasoningEfforts: ["medium", "high"],
+        defaultReasoningEffort: "high",
+        billingMultiplier: 2,
+      },
+    ]);
+    assert.deepEqual(status.quotaSnapshots, [
+      {
+        key: "premium_interactions",
+        entitlementRequests: 100,
+        usedRequests: 25,
+        remainingRequests: 75,
+        remainingPercentage: 75,
+        overage: 0,
+        overageAllowedWithExhaustedQuota: false,
+        resetDate: "2026-04-01T00:00:00.000Z",
+      },
+    ]);
+  }),
+);
+
+it.effect("returns unavailable when github copilot health probe fails", () =>
+  Effect.gen(function* () {
+    const status = yield* makeCheckCopilotProviderStatus(async () => {
+      throw new Error("spawn copilot ENOENT");
+    });
+    assert.strictEqual(status.provider, "githubCopilot");
+    assert.strictEqual(status.status, "error");
+    assert.strictEqual(status.available, false);
+  }),
+);
+
 // ── Pure function tests ─────────────────────────────────────────────
 
 it("parseAuthStatusFromOutput: exit code 0 with no auth markers is ready", () => {
@@ -217,4 +295,58 @@ it("parseAuthStatusFromOutput: 'authenticated' text is authenticated", () => {
   });
   assert.strictEqual(parsed.status, "ready");
   assert.strictEqual(parsed.authStatus, "authenticated");
+});
+
+it("mapCopilotModel prefixes GitHub Copilot model ids", () => {
+  expect(
+    mapCopilotModel({
+      id: "claude-opus-4.6",
+      name: "Claude Opus 4.6",
+      supportedReasoningEfforts: [],
+    } as never),
+  ).toEqual({
+    id: "copilot:claude-opus-4.6",
+    name: "Claude Opus 4.6",
+    supportsReasoningEffort: false,
+  });
+});
+
+it("mapCopilotQuotaSnapshots sorts and derives remaining requests", () => {
+  expect(
+    mapCopilotQuotaSnapshots({
+      chat: {
+        entitlementRequests: 50,
+        usedRequests: 10,
+        remainingPercentage: 80,
+        overage: 0,
+        overageAllowedWithExhaustedQuota: false,
+      },
+      premium_interactions: {
+        entitlementRequests: 10,
+        usedRequests: 2,
+        remainingPercentage: 80,
+        overage: 0,
+        overageAllowedWithExhaustedQuota: false,
+      },
+    }),
+  ).toEqual([
+    {
+      key: "premium_interactions",
+      entitlementRequests: 10,
+      usedRequests: 2,
+      remainingRequests: 8,
+      remainingPercentage: 80,
+      overage: 0,
+      overageAllowedWithExhaustedQuota: false,
+    },
+    {
+      key: "chat",
+      entitlementRequests: 50,
+      usedRequests: 10,
+      remainingRequests: 40,
+      remainingPercentage: 80,
+      overage: 0,
+      overageAllowedWithExhaustedQuota: false,
+    },
+  ]);
 });

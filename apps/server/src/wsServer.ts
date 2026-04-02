@@ -19,6 +19,7 @@ import {
   ORCHESTRATION_WS_METHODS,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   ProjectId,
+  type ServerConfigIssue,
   ThreadId,
   TerminalEvent,
   WS_CHANNELS,
@@ -100,6 +101,8 @@ export interface ServerShape {
  */
 export class Server extends ServiceMap.Service<Server, ServerShape>()("t3sparks/wsServer/Server") {}
 
+const GITHUB_COPILOT_STARTUP_RETRY_DELAYS_MS = [750, 2_500] as const;
+
 const isServerNotRunningError = (error: unknown): boolean => {
   if (!(error instanceof Error)) return false;
   const maybeCode = (error as NodeJS.ErrnoException).code;
@@ -117,6 +120,26 @@ function rejectUpgrade(socket: Duplex, statusCode: number, message: string): voi
       "\r\n" +
       message,
   );
+}
+
+function providerStatusRetrySignature(status: {
+  readonly provider: string;
+  readonly status: string;
+  readonly available: boolean;
+  readonly authStatus: string;
+  readonly message?: string;
+  readonly models?: unknown;
+  readonly quotaSnapshots?: unknown;
+}): string {
+  return JSON.stringify({
+    provider: status.provider,
+    status: status.status,
+    available: status.available,
+    authStatus: status.authStatus,
+    message: status.message ?? null,
+    models: status.models ?? null,
+    quotaSnapshots: status.quotaSnapshots ?? null,
+  });
 }
 
 function websocketRawToString(raw: unknown): string | null {
@@ -267,8 +290,6 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     ),
   );
 
-  const providerStatuses = yield* providerHealth.getStatuses;
-
   const clients = yield* Ref.make(new Set<WebSocket>());
   const logger = createLogger("ws");
 
@@ -292,6 +313,84 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       }
     }
     logOutgoingPush(push, recipients);
+  });
+
+  const pushServerConfigUpdate = Effect.fnUntraced(function* (
+    issues: ReadonlyArray<ServerConfigIssue>,
+  ) {
+    const providers = yield* providerHealth.getStatuses;
+    yield* broadcastPush({
+      type: "push",
+      channel: WS_CHANNELS.serverConfigUpdated,
+      data: {
+        issues,
+        providers,
+      },
+    });
+  });
+
+  const scheduleGitHubCopilotStartupHealthRetries = Effect.fnUntraced(function* (
+    runPromise: <A, E>(effect: Effect.Effect<A, E, never>) => Promise<A>,
+  ) {
+    const keybindingsConfig = yield* keybindingsManager.loadConfigState;
+    const initialStatus = (yield* providerHealth.getStatuses).find(
+      (status) => status.provider === "githubCopilot",
+    );
+    if (!initialStatus || initialStatus.status === "ready") {
+      return;
+    }
+
+    let lastSignature = providerStatusRetrySignature(initialStatus);
+    let settled = false;
+    let cumulativeDelayMs = 0;
+    const retryTimeoutHandles = new Set<ReturnType<typeof setTimeout>>();
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        settled = true;
+        for (const handle of retryTimeoutHandles) {
+          clearTimeout(handle);
+        }
+        retryTimeoutHandles.clear();
+      }),
+    );
+
+    for (const [attemptIndex, delayMs] of GITHUB_COPILOT_STARTUP_RETRY_DELAYS_MS.entries()) {
+      cumulativeDelayMs += delayMs;
+      const handle = setTimeout(() => {
+        retryTimeoutHandles.delete(handle);
+        if (settled) {
+          return;
+        }
+        void runPromise(
+          providerHealth.checkStatus("githubCopilot").pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("github copilot startup health retry failed", {
+                attempt: attemptIndex + 1,
+                detail: error instanceof Error ? error.message : String(error),
+              }).pipe(Effect.as(null)),
+            ),
+            Effect.flatMap((nextStatus) =>
+              Effect.gen(function* () {
+                if (!nextStatus || settled) {
+                  return;
+                }
+
+                const nextSignature = providerStatusRetrySignature(nextStatus);
+                if (nextSignature !== lastSignature) {
+                  lastSignature = nextSignature;
+                  yield* pushServerConfigUpdate(keybindingsConfig.issues);
+                }
+
+                if (nextStatus.status === "ready") {
+                  settled = true;
+                }
+              }),
+            ),
+          ),
+        ).catch(() => undefined);
+      }, cumulativeDelayMs);
+      retryTimeoutHandles.add(handle);
+    }
   });
 
   const onTerminalEvent = Effect.fnUntraced(function* (event: TerminalEvent) {
@@ -566,7 +665,13 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
   });
 
   const closeAllClients = Ref.get(clients).pipe(
-    Effect.flatMap(Effect.forEach((client) => Effect.sync(() => client.close()))),
+    Effect.flatMap(
+      Effect.forEach((client) =>
+        Effect.sync(() => {
+          client.terminate();
+        }),
+      ),
+    ),
     Effect.flatMap(() => Ref.set(clients, new Set())),
   );
 
@@ -590,14 +695,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
   ).pipe(Effect.forkIn(subscriptionsScope));
 
   yield* Stream.runForEach(keybindingsManager.changes, (event) =>
-    broadcastPush({
-      type: "push",
-      channel: WS_CHANNELS.serverConfigUpdated,
-      data: {
-        issues: event.issues,
-        providers: providerStatuses,
-      },
-    }),
+    pushServerConfigUpdate(event.issues),
   ).pipe(Effect.forkIn(subscriptionsScope));
 
   yield* Scope.provide(orchestrationReactor.start, subscriptionsScope);
@@ -863,6 +961,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.serverGetConfig:
         const keybindingsConfig = yield* keybindingsManager.loadConfigState;
+        const providerStatuses = yield* providerHealth.getStatuses;
         return {
           cwd,
           keybindingsConfigPath,
@@ -871,6 +970,13 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           providers: providerStatuses,
           availableEditors,
         };
+
+      case WS_METHODS.serverCheckGitHubCopilotStatus: {
+        const status = yield* providerHealth.checkStatus("githubCopilot");
+        const keybindingsConfig = yield* keybindingsManager.loadConfigState;
+        yield* pushServerConfigUpdate(keybindingsConfig.issues);
+        return status;
+      }
 
       case WS_METHODS.serverUpsertKeybinding: {
         const body = stripRequestTag(request.body);
@@ -997,6 +1103,8 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       );
     });
   });
+
+  yield* scheduleGitHubCopilotStartupHealthRetries(runPromise);
 
   return httpServer;
 });

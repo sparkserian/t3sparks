@@ -14,6 +14,9 @@ describe("normalizeModelSlug", () => {
   it("maps known aliases to canonical slugs", () => {
     expect(normalizeModelSlug("5.3")).toBe("gpt-5.3-codex");
     expect(normalizeModelSlug("gpt-5.3")).toBe("gpt-5.3-codex");
+    expect(normalizeModelSlug("claude-opus-4.6", "githubCopilot")).toBe(
+      "copilot:claude-opus-4.6",
+    );
   });
 
   it("returns null for empty or missing values", () => {
@@ -26,6 +29,7 @@ describe("normalizeModelSlug", () => {
   it("preserves non-aliased model slugs", () => {
     expect(normalizeModelSlug("gpt-5.2")).toBe("gpt-5.2");
     expect(normalizeModelSlug("gpt-5.2-codex")).toBe("gpt-5.2-codex");
+    expect(normalizeModelSlug("custom-preview", "githubCopilot")).toBe("copilot:custom-preview");
   });
 
   it("does not leak prototype properties as aliases", () => {
@@ -53,6 +57,11 @@ describe("resolveModelSlug", () => {
   it("keeps codex defaults for backward compatibility", () => {
     expect(getDefaultModel()).toBe(DEFAULT_MODEL_BY_PROVIDER.codex);
     expect(getModelOptions()).toEqual(MODEL_OPTIONS_BY_PROVIDER.codex);
+  });
+
+  it("returns copilot defaults for github copilot", () => {
+    expect(getDefaultModel("githubCopilot")).toBe(DEFAULT_MODEL_BY_PROVIDER.githubCopilot);
+    expect(getModelOptions("githubCopilot")).toEqual(MODEL_OPTIONS_BY_PROVIDER.githubCopilot);
   });
 });
 

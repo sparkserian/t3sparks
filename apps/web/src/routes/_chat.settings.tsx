@@ -1,7 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
-import { ThreadId, type ProviderKind } from "@t3sparks/contracts";
+import {
+  ThreadId,
+  type ProviderKind,
+  type ServerConfig,
+  type ServerProviderStatus,
+} from "@t3sparks/contracts";
 import { getModelOptions, normalizeModelSlug } from "@t3sparks/shared/model";
 import { ZapIcon } from "lucide-react";
 
@@ -21,11 +26,12 @@ import {
   resolveDesktopUpdateButtonAction,
   shouldShowDesktopUpdateCheckAction,
 } from "../components/desktopUpdate.logic";
+import { deriveCopilotQuotaSummary } from "../components/copilotProviderStatus";
 import { isElectron } from "../env";
 import { useDesktopUpdate } from "../hooks/useDesktopUpdate";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useTheme } from "../hooks/useTheme";
-import { serverConfigQueryOptions } from "../lib/serverReactQuery";
+import { serverConfigQueryOptions, serverQueryKeys } from "../lib/serverReactQuery";
 import { ensureNativeApi } from "../nativeApi";
 import { requestOpenOnboarding } from "../onboarding";
 import { useStore } from "../store";
@@ -77,6 +83,13 @@ const MODEL_PROVIDER_SETTINGS: Array<{
     placeholder: "your-gemini-model-slug",
     example: "gemini-3-pro-preview",
   },
+  {
+    provider: "githubCopilot",
+    title: "GitHub Copilot",
+    description: "Save additional Copilot model slugs for the picker and `/model` command.",
+    placeholder: "claude-opus-4.6",
+    example: "gpt-5.2-codex",
+  },
 ] as const;
 
 function getCustomModelsForProvider(
@@ -88,6 +101,8 @@ function getCustomModelsForProvider(
       return settings.customCodexModels;
     case "gemini":
       return settings.customGeminiModels;
+    case "githubCopilot":
+      return settings.customGitHubCopilotModels;
     default:
       return settings.customCodexModels;
   }
@@ -102,6 +117,8 @@ function getDefaultCustomModelsForProvider(
       return defaults.customCodexModels;
     case "gemini":
       return defaults.customGeminiModels;
+    case "githubCopilot":
+      return defaults.customGitHubCopilotModels;
     default:
       return defaults.customCodexModels;
   }
@@ -113,12 +130,64 @@ function patchCustomModels(provider: ProviderKind, models: string[]) {
       return { customCodexModels: models };
     case "gemini":
       return { customGeminiModels: models };
+    case "githubCopilot":
+      return { customGitHubCopilotModels: models };
     default:
       return { customCodexModels: models };
   }
 }
 
+function formatProviderStatusLabel(status: ServerProviderStatus["status"]): string {
+  switch (status) {
+    case "ready":
+      return "Ready";
+    case "warning":
+      return "Warning";
+    case "error":
+      return "Error";
+  }
+}
+
+function formatProviderAuthStatusLabel(status: ServerProviderStatus["authStatus"]): string {
+  switch (status) {
+    case "authenticated":
+      return "Authenticated";
+    case "unauthenticated":
+      return "Not authenticated";
+    case "unknown":
+      return "Unknown";
+  }
+}
+
+function copilotStatusTone(status: ServerProviderStatus["status"]): string {
+  switch (status) {
+    case "ready":
+      return "border-emerald-500/30 bg-emerald-500/8 text-emerald-700 dark:text-emerald-200";
+    case "warning":
+      return "border-amber-500/30 bg-amber-500/8 text-amber-700 dark:text-amber-200";
+    case "error":
+      return "border-rose-500/30 bg-rose-500/8 text-rose-700 dark:text-rose-200";
+  }
+}
+
+function replaceProviderStatus(
+  config: ServerConfig | undefined,
+  status: ServerProviderStatus,
+): ServerConfig | undefined {
+  if (!config) return config;
+  const existingIndex = config.providers.findIndex((entry) => entry.provider === status.provider);
+  const providers =
+    existingIndex === -1
+      ? [...config.providers, status]
+      : config.providers.map((entry, index) => (index === existingIndex ? status : entry));
+  return {
+    ...config,
+    providers,
+  };
+}
+
 function SettingsRouteView() {
+  const queryClient = useQueryClient();
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { settings, defaults, updateSettings } = useAppSettings();
   const {
@@ -132,6 +201,11 @@ function SettingsRouteView() {
   const projects = useStore((store) => store.projects);
   const { unarchiveThread, confirmAndDeleteThread } = useThreadActions();
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
+  const [refreshedCopilotStatus, setRefreshedCopilotStatus] = useState<ServerProviderStatus | null>(
+    null,
+  );
+  const [isCheckingCopilotHealth, setIsCheckingCopilotHealth] = useState(false);
+  const [copilotHealthCheckError, setCopilotHealthCheckError] = useState<string | null>(null);
   const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
   const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
@@ -140,6 +214,7 @@ function SettingsRouteView() {
     codex: "",
     claudeAgent: "",
     gemini: "",
+    githubCopilot: "",
   });
   const [customModelErrorByProvider, setCustomModelErrorByProvider] = useState<
     Partial<Record<ProviderKind, string | null>>
@@ -149,6 +224,18 @@ function SettingsRouteView() {
   const codexHomePath = settings.codexHomePath;
   const codexServiceTier = settings.codexServiceTier;
   const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
+  const copilotStatus =
+    refreshedCopilotStatus ??
+    serverConfigQuery.data?.providers.find((status) => status.provider === "githubCopilot") ??
+    null;
+  const copilotQuotaSummary = useMemo(
+    () => deriveCopilotQuotaSummary(copilotStatus?.quotaSnapshots),
+    [copilotStatus?.quotaSnapshots],
+  );
+  const copilotModelPreview = useMemo(
+    () => copilotStatus?.models?.slice(0, 6) ?? [],
+    [copilotStatus?.models],
+  );
   const archivedThreadsByProject = useMemo(() => {
     const projectNameById = new Map(projects.map((project) => [project.id, project.name] as const));
     return threads
@@ -196,10 +283,48 @@ function SettingsRouteView() {
       });
   }, [keybindingsConfigPath]);
 
+  const runCopilotHealthCheck = useCallback(async () => {
+    setIsCheckingCopilotHealth(true);
+    setCopilotHealthCheckError(null);
+    try {
+      const api = ensureNativeApi();
+      const status = await api.server.checkGitHubCopilotStatus();
+      setRefreshedCopilotStatus(status);
+      queryClient.setQueryData<ServerConfig | undefined>(serverQueryKeys.config(), (existing) =>
+        replaceProviderStatus(existing, status),
+      );
+      if (status.status === "ready") {
+        toastManager.add({
+          type: "success",
+          title: "GitHub Copilot health check passed",
+          description: "SDK status and Copilot account metadata loaded successfully.",
+        });
+        return;
+      }
+      toastManager.add({
+        type: status.status === "error" ? "error" : "warning",
+        title: "GitHub Copilot health check finished",
+        description: status.message ?? "GitHub Copilot returned a non-ready status.",
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to run GitHub Copilot health check.";
+      setCopilotHealthCheckError(message);
+      toastManager.add({
+        type: "error",
+        title: "GitHub Copilot health check failed",
+        description: message,
+      });
+    } finally {
+      setIsCheckingCopilotHealth(false);
+    }
+  }, [queryClient]);
+
   const addCustomModel = useCallback((provider: ProviderKind) => {
     const customModelInput = customModelInputByProvider[provider];
     const customModels = getCustomModelsForProvider(settings, provider);
     const normalized = normalizeModelSlug(customModelInput, provider);
+    const builtInModels = getModelOptions(provider);
     if (!normalized) {
       setCustomModelErrorByProvider((existing) => ({
         ...existing,
@@ -207,7 +332,7 @@ function SettingsRouteView() {
       }));
       return;
     }
-    if (getModelOptions(provider).some((option) => option.slug === normalized)) {
+    if (builtInModels.some((option) => option.slug === normalized)) {
       setCustomModelErrorByProvider((existing) => ({
         ...existing,
         [provider]: "That model is already built in.",
@@ -650,6 +775,161 @@ function SettingsRouteView() {
                   </Button>
                 </div>
               </div>
+            </section>
+
+            <section className="rounded-2xl border border-border bg-card p-5">
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2 className="text-sm font-medium text-foreground">GitHub Copilot Health</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Runs the GitHub Copilot SDK startup check and shows what metadata was actually
+                    confirmed for this machine and account.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    void runCopilotHealthCheck();
+                  }}
+                  disabled={isCheckingCopilotHealth}
+                >
+                  {isCheckingCopilotHealth ? "Checking..." : "Run health check"}
+                </Button>
+              </div>
+
+              {copilotStatus ? (
+                <div className="space-y-4">
+                  <div className={`rounded-xl border px-4 py-3 ${copilotStatusTone(copilotStatus.status)}`}>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium">
+                          {formatProviderStatusLabel(copilotStatus.status)}
+                        </p>
+                        <p className="mt-1 text-xs">
+                          {copilotStatus.message ??
+                            "No additional GitHub Copilot diagnostics were returned."}
+                        </p>
+                      </div>
+                      <div className="text-xs">
+                        Checked{" "}
+                        <span className="font-medium text-foreground">
+                          {formatRelativeTimeLabel(copilotStatus.checkedAt)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-4">
+                    <div className="rounded-lg border border-border bg-background px-3 py-2">
+                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground/70">
+                        Auth
+                      </div>
+                      <div className="mt-1 text-sm font-medium text-foreground">
+                        {formatProviderAuthStatusLabel(copilotStatus.authStatus)}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-border bg-background px-3 py-2">
+                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground/70">
+                        Reachability
+                      </div>
+                      <div className="mt-1 text-sm font-medium text-foreground">
+                        {copilotStatus.available ? "Reachable" : "Unavailable"}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-border bg-background px-3 py-2">
+                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground/70">
+                        Models
+                      </div>
+                      <div className="mt-1 text-sm font-medium text-foreground">
+                        {copilotStatus.models?.length ?? 0}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-border bg-background px-3 py-2">
+                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground/70">
+                        Quota buckets
+                      </div>
+                      <div className="mt-1 text-sm font-medium text-foreground">
+                        {copilotStatus.quotaSnapshots?.length ?? 0}
+                      </div>
+                    </div>
+                  </div>
+
+                  {copilotQuotaSummary ? (
+                    <div className="rounded-xl border border-border bg-background/60 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium text-foreground">
+                            {copilotQuotaSummary.title}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {copilotQuotaSummary.detail}
+                          </p>
+                        </div>
+                        <div className="text-sm font-medium text-foreground">
+                          {Math.round(copilotQuotaSummary.remainingPercent)}%
+                        </div>
+                      </div>
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className={`h-full rounded-full transition-[width] ${
+                            copilotQuotaSummary.progressTone === "danger"
+                              ? "bg-rose-500"
+                              : copilotQuotaSummary.progressTone === "warning"
+                                ? "bg-amber-500"
+                                : "bg-emerald-500"
+                          }`}
+                          style={{ width: `${copilotQuotaSummary.remainingPercent}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="rounded-xl border border-border bg-background/50 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium text-foreground">Discovered models</p>
+                      <p className="text-xs text-muted-foreground">
+                        {copilotStatus.models?.length
+                          ? `Showing ${Math.min(copilotModelPreview.length, copilotStatus.models.length)} of ${copilotStatus.models.length}`
+                          : "No SDK model list returned"}
+                      </p>
+                    </div>
+                    {copilotModelPreview.length > 0 ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {copilotModelPreview.map((model) => (
+                          <div
+                            key={model.id}
+                            className="rounded-full border border-border bg-background px-2.5 py-1 text-[11px] text-foreground"
+                            title={model.id}
+                          >
+                            {model.name}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        This check did not return an SDK model list. The picker will continue to
+                        use the built-in Copilot fallback catalog.
+                      </p>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    This health check verifies the GitHub Copilot SDK path. Copilot chat sessions
+                    can still work through the ACP runtime even when the SDK startup check is slow
+                    or incomplete.
+                  </p>
+
+                  {copilotHealthCheckError ? (
+                    <div className="rounded-lg border border-rose-500/30 bg-rose-500/8 px-3 py-2 text-xs text-rose-700 dark:text-rose-200">
+                      {copilotHealthCheckError}
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-border bg-background px-3 py-4 text-xs text-muted-foreground">
+                  No GitHub Copilot health snapshot is available yet.
+                </div>
+              )}
             </section>
 
             <section className="rounded-2xl border border-border bg-card p-5">

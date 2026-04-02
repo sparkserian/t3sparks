@@ -144,6 +144,39 @@ const make = Effect.gen(function* () {
     return Option.none();
   });
 
+  const resolveUsableCheckpointCwd = Effect.fnUntraced(function* (input: {
+    readonly threadId: ThreadId;
+    readonly turnId?: TurnId | null;
+    readonly reason: "pre-turn-baseline" | "turn-completion";
+    readonly candidates: ReadonlyArray<string | undefined>;
+  }): Effect.fn.Return<string | undefined> {
+    const distinctCandidates: string[] = [];
+    for (const candidate of input.candidates) {
+      const normalized = candidate?.trim();
+      if (!normalized || distinctCandidates.includes(normalized)) {
+        continue;
+      }
+      distinctCandidates.push(normalized);
+    }
+
+    for (const cwd of distinctCandidates) {
+      const isGitRepository = yield* checkpointStore
+        .isGitRepository(cwd)
+        .pipe(Effect.catch(() => Effect.succeed(false)));
+      if (isGitRepository) {
+        return cwd;
+      }
+    }
+
+    yield* Effect.logWarning("checkpoint capture skipped: no usable git workspace cwd", {
+      threadId: input.threadId,
+      ...(input.turnId ? { turnId: input.turnId } : {}),
+      reason: input.reason,
+      cwdCandidates: distinctCandidates,
+    });
+    return undefined;
+  });
+
   const captureCheckpointFromTurnCompletion = Effect.fnUntraced(function* (
     event: Extract<ProviderRuntimeEvent, { type: "turn.completed" }>,
   ) {
@@ -168,20 +201,22 @@ const make = Effect.gen(function* () {
     }
 
     const sessionRuntime = yield* resolveSessionRuntimeForThread(thread.id);
-    const checkpointCwd =
-      Option.match(sessionRuntime, {
-        onNone: () => undefined,
-        onSome: (runtime) => runtime.cwd,
-      }) ??
-      resolveThreadWorkspaceCwd({
-        thread,
-        projects: readModel.projects,
-      });
+    const checkpointCwd = yield* resolveUsableCheckpointCwd({
+      threadId: thread.id,
+      turnId,
+      reason: "turn-completion",
+      candidates: [
+        Option.match(sessionRuntime, {
+          onNone: () => undefined,
+          onSome: (runtime) => runtime.cwd,
+        }),
+        resolveThreadWorkspaceCwd({
+          thread,
+          projects: readModel.projects,
+        }),
+      ],
+    });
     if (!checkpointCwd) {
-      yield* Effect.logWarning("checkpoint capture skipped: no active provider session cwd", {
-        threadId: thread.id,
-        turnId,
-      });
       return;
     }
 
@@ -302,21 +337,22 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const checkpointCwdFromThreadOrProject = resolveThreadWorkspaceCwd({
-      thread,
-      projects: readModel.projects,
+    const checkpointCwd = yield* resolveUsableCheckpointCwd({
+      threadId: thread.id,
+      turnId,
+      reason: "pre-turn-baseline",
+      candidates: [
+        resolveThreadWorkspaceCwd({
+          thread,
+          projects: readModel.projects,
+        }),
+        Option.match(yield* resolveSessionRuntimeForThread(thread.id), {
+          onNone: () => undefined,
+          onSome: (runtime) => runtime.cwd,
+        }),
+      ],
     });
-    const checkpointCwd =
-      checkpointCwdFromThreadOrProject ??
-      Option.match(yield* resolveSessionRuntimeForThread(thread.id), {
-        onNone: () => undefined,
-        onSome: (runtime) => runtime.cwd,
-      });
     if (!checkpointCwd) {
-      yield* Effect.logWarning("checkpoint pre-turn capture skipped: no workspace cwd", {
-        threadId: thread.id,
-        turnId,
-      });
       return;
     }
 
@@ -362,20 +398,21 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const checkpointCwdFromThreadOrProject = resolveThreadWorkspaceCwd({
-      thread,
-      projects: readModel.projects,
+    const checkpointCwd = yield* resolveUsableCheckpointCwd({
+      threadId,
+      reason: "pre-turn-baseline",
+      candidates: [
+        resolveThreadWorkspaceCwd({
+          thread,
+          projects: readModel.projects,
+        }),
+        Option.match(yield* resolveSessionRuntimeForThread(threadId), {
+          onNone: () => undefined,
+          onSome: (runtime) => runtime.cwd,
+        }),
+      ],
     });
-    const checkpointCwd =
-      checkpointCwdFromThreadOrProject ??
-      Option.match(yield* resolveSessionRuntimeForThread(threadId), {
-        onNone: () => undefined,
-        onSome: (runtime) => runtime.cwd,
-      });
     if (!checkpointCwd) {
-      yield* Effect.logWarning("checkpoint pre-turn capture skipped: no workspace cwd", {
-        threadId,
-      });
       return;
     }
 

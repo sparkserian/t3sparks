@@ -142,7 +142,12 @@ function toLegacySessionStatus(
 }
 
 function toLegacyProvider(providerName: string | null): ProviderKind {
-  if (providerName === "codex" || providerName === "claudeAgent" || providerName === "gemini") {
+  if (
+    providerName === "codex" ||
+    providerName === "claudeAgent" ||
+    providerName === "gemini" ||
+    providerName === "githubCopilot"
+  ) {
     return providerName;
   }
   return "codex";
@@ -155,7 +160,8 @@ function inferProviderForThreadModel(input: {
   if (
     input.sessionProviderName === "codex" ||
     input.sessionProviderName === "claudeAgent" ||
-    input.sessionProviderName === "gemini"
+    input.sessionProviderName === "gemini" ||
+    input.sessionProviderName === "githubCopilot"
   ) {
     return input.sessionProviderName;
   }

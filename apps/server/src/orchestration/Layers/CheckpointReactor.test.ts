@@ -289,7 +289,8 @@ describe("CheckpointReactor", () => {
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         branch: null,
-        worktreePath: options?.threadWorktreePath ?? cwd,
+        worktreePath:
+          options && "threadWorktreePath" in options ? (options.threadWorktreePath ?? null) : cwd,
         createdAt,
       }),
     );
@@ -398,6 +399,66 @@ describe("CheckpointReactor", () => {
         "README.md",
       ),
     ).toBe("v2\n");
+  });
+
+  it("skips checkpoint capture cleanly when persisted workspace paths are stale", async () => {
+    const missingWorkspaceRoot = path.join(os.tmpdir(), `t3-checkpoint-missing-${crypto.randomUUID()}`);
+    const harness = await createHarness({
+      seedFilesystemCheckpoints: false,
+      projectWorkspaceRoot: missingWorkspaceRoot,
+      threadWorktreePath: null,
+      providerSessionCwd: missingWorkspaceRoot,
+    });
+    const createdAt = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-set-stale-checkpoint"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: createdAt,
+        },
+        createdAt,
+      }),
+    );
+
+    harness.provider.emit({
+      type: "turn.started",
+      eventId: EventId.makeUnsafe("evt-turn-started-stale-checkpoint"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      turnId: asTurnId("turn-stale"),
+    });
+
+    harness.provider.emit({
+      type: "turn.completed",
+      eventId: EventId.makeUnsafe("evt-turn-completed-stale-checkpoint"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      turnId: asTurnId("turn-stale"),
+      payload: { state: "completed" },
+    });
+
+    await Effect.runPromise(Effect.sleep("100 millis"));
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(thread?.checkpoints).toHaveLength(0);
+    expect(
+      thread?.activities.some((activity) => activity.kind === "checkpoint.capture.failed"),
+    ).toBe(false);
+    expect(thread?.activities.some((activity) => activity.kind === "checkpoint.captured")).toBe(
+      false,
+    );
   });
 
   it("ignores auxiliary thread turn completion while primary turn is active", async () => {
@@ -651,7 +712,7 @@ describe("CheckpointReactor", () => {
     );
   });
 
-  it("continues processing runtime events after a single checkpoint runtime failure", async () => {
+  it("continues processing runtime events after a skipped stale-workspace checkpoint", async () => {
     const nonRepositorySessionCwd = fs.mkdtempSync(
       path.join(os.tmpdir(), "t3-checkpoint-runtime-non-repo-"),
     );
@@ -659,7 +720,9 @@ describe("CheckpointReactor", () => {
 
     const harness = await createHarness({
       seedFilesystemCheckpoints: false,
+      projectWorkspaceRoot: nonRepositorySessionCwd,
       providerSessionCwd: nonRepositorySessionCwd,
+      threadWorktreePath: null,
     });
     const createdAt = new Date().toISOString();
 
@@ -691,6 +754,16 @@ describe("CheckpointReactor", () => {
       turnId: asTurnId("turn-runtime-failure"),
       payload: { state: "completed" },
     });
+
+    await Effect.runPromise(Effect.sleep("80 millis"));
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "project.meta.update",
+        commandId: CommandId.makeUnsafe("cmd-project-update-runtime-recovery"),
+        projectId: asProjectId("project-1"),
+        workspaceRoot: harness.cwd,
+      }),
+    );
 
     harness.provider.emit({
       type: "turn.started",

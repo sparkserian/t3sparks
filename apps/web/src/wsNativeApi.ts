@@ -228,6 +228,8 @@ export function createWsNativeApi(): NativeApi {
     },
     server: {
       getConfig: () => transport.request(WS_METHODS.serverGetConfig),
+      checkGitHubCopilotStatus: () =>
+        transport.request(WS_METHODS.serverCheckGitHubCopilotStatus),
       upsertKeybinding: (input) => transport.request(WS_METHODS.serverUpsertKeybinding, input),
     },
     orchestration: {

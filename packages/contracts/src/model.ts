@@ -25,10 +25,14 @@ export type ClaudeModelOptions = typeof ClaudeModelOptions.Type;
 export const GeminiModelOptions = Schema.Struct({});
 export type GeminiModelOptions = typeof GeminiModelOptions.Type;
 
+export const GitHubCopilotModelOptions = Schema.Struct({});
+export type GitHubCopilotModelOptions = typeof GitHubCopilotModelOptions.Type;
+
 export const ProviderModelOptions = Schema.Struct({
   codex: Schema.optional(CodexModelOptions),
   claudeAgent: Schema.optional(ClaudeModelOptions),
   gemini: Schema.optional(GeminiModelOptions),
+  githubCopilot: Schema.optional(GitHubCopilotModelOptions),
 });
 export type ProviderModelOptions = typeof ProviderModelOptions.Type;
 
@@ -60,6 +64,15 @@ export const MODEL_OPTIONS_BY_PROVIDER = {
     { slug: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
     { slug: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash Lite" },
   ],
+  githubCopilot: [
+    { slug: "copilot:auto", name: "Auto" },
+    { slug: "copilot:claude-sonnet-4.5", name: "Claude Sonnet 4.5" },
+    { slug: "copilot:claude-opus-4.5", name: "Claude Opus 4.5" },
+    { slug: "copilot:claude-opus-4.6", name: "Claude Opus 4.6" },
+    { slug: "copilot:gpt-5.4", name: "GPT-5.4" },
+    { slug: "copilot:gpt-5.1-codex-max", name: "GPT-5.1 Codex Max" },
+    { slug: "copilot:gpt-5.2-codex", name: "GPT-5.2 Codex" },
+  ],
 } as const satisfies Record<ProviderKind, readonly ModelOption[]>;
 export type ModelOptionsByProvider = typeof MODEL_OPTIONS_BY_PROVIDER;
 
@@ -70,6 +83,7 @@ export const DEFAULT_MODEL_BY_PROVIDER = {
   codex: "gpt-5.4",
   claudeAgent: "claude-sonnet-4-6",
   gemini: "auto",
+  githubCopilot: "copilot:auto",
 } as const satisfies Record<ProviderKind, ModelSlug>;
 
 export const MODEL_SLUG_ALIASES_BY_PROVIDER = {
@@ -106,16 +120,34 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER = {
     "2.5-flash": "gemini-2.5-flash",
     "2.5-flash-lite": "gemini-2.5-flash-lite",
   },
+  githubCopilot: {
+    auto: "copilot:auto",
+    "copilot-auto": "copilot:auto",
+    "claude-sonnet-4.5": "copilot:claude-sonnet-4.5",
+    "copilot:claude-sonnet-4.5": "copilot:claude-sonnet-4.5",
+    "claude-opus-4.5": "copilot:claude-opus-4.5",
+    "copilot:claude-opus-4.5": "copilot:claude-opus-4.5",
+    "claude-opus-4.6": "copilot:claude-opus-4.6",
+    "copilot:claude-opus-4.6": "copilot:claude-opus-4.6",
+    "gpt-5.4": "copilot:gpt-5.4",
+    "copilot:gpt-5.4": "copilot:gpt-5.4",
+    "gpt-5.1-codex-max": "copilot:gpt-5.1-codex-max",
+    "copilot:gpt-5.1-codex-max": "copilot:gpt-5.1-codex-max",
+    "gpt-5.2-codex": "copilot:gpt-5.2-codex",
+    "copilot:gpt-5.2-codex": "copilot:gpt-5.2-codex",
+  },
 } as const satisfies Record<ProviderKind, Record<string, ModelSlug>>;
 
 export const REASONING_EFFORT_OPTIONS_BY_PROVIDER = {
   codex: CODEX_REASONING_EFFORT_OPTIONS,
   claudeAgent: CLAUDE_CODE_EFFORT_OPTIONS,
   gemini: [],
+  githubCopilot: [],
 } as const satisfies Record<ProviderKind, readonly ProviderReasoningEffort[]>;
 
 export const DEFAULT_REASONING_EFFORT_BY_PROVIDER = {
   codex: "high",
   claudeAgent: "high",
   gemini: null,
+  githubCopilot: null,
 } as const satisfies Record<ProviderKind, ProviderReasoningEffort | null>;

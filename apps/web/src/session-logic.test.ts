@@ -134,6 +134,37 @@ describe("derivePendingApprovals", () => {
 
     expect(derivePendingApprovals(activities)).toEqual([]);
   });
+
+  it("clears stale pending approvals when provider reports unknown pending approval request", () => {
+    const approvals = derivePendingApprovals([
+      {
+        id: EventId.makeUnsafe("approval-open-stale-approval"),
+        createdAt: "2025-01-01T00:00:00.000Z",
+        kind: "approval.requested",
+        summary: "Command approval requested",
+        tone: "approval",
+        payload: {
+          requestId: "req-stale-approval-1",
+          requestType: "command_execution_approval",
+        },
+        turnId: null,
+      },
+      {
+        id: EventId.makeUnsafe("approval-failed-stale-approval"),
+        createdAt: "2025-01-01T00:00:01.000Z",
+        kind: "provider.approval.respond.failed",
+        summary: "Provider approval response failed",
+        tone: "error",
+        payload: {
+          requestId: "req-stale-approval-1",
+          detail: "Unknown pending approval request: req-stale-approval-1",
+        },
+        turnId: null,
+      },
+    ]);
+
+    expect(approvals).toEqual([]);
+  });
 });
 
 describe("derivePendingUserInputs", () => {
@@ -544,13 +575,15 @@ describe("isLatestTurnSettled", () => {
 });
 
 describe("PROVIDER_OPTIONS", () => {
-  it("includes Claude as an available provider and keeps placeholders for upcoming providers", () => {
+  it("includes Claude and GitHub Copilot as available providers and keeps placeholders for upcoming providers", () => {
     const gemini = PROVIDER_OPTIONS.find((option) => option.value === "gemini");
     const claude = PROVIDER_OPTIONS.find((option) => option.value === "claudeAgent");
+    const githubCopilot = PROVIDER_OPTIONS.find((option) => option.value === "githubCopilot");
     const cursor = PROVIDER_OPTIONS.find((option) => option.value === "cursor");
     expect(PROVIDER_OPTIONS).toEqual([
       { value: "codex", label: "Codex", available: true },
       { value: "claudeAgent", label: "Claude Code", available: true },
+      { value: "githubCopilot", label: "GitHub Copilot", available: true },
       { value: "gemini", label: "Gemini", available: false },
       { value: "cursor", label: "Cursor", available: false },
     ]);
@@ -564,6 +597,11 @@ describe("PROVIDER_OPTIONS", () => {
       label: "Claude Code",
       available: true,
     });
+    expect(githubCopilot).toEqual({
+      value: "githubCopilot",
+      label: "GitHub Copilot",
+      available: true,
+    });
     expect(cursor).toEqual({
       value: "cursor",
       label: "Cursor",
@@ -571,10 +609,11 @@ describe("PROVIDER_OPTIONS", () => {
     });
   });
 
-  it("keeps Claude in the selectable provider list", () => {
+  it("keeps Claude and GitHub Copilot in the selectable provider list", () => {
     expect(getSelectableProviderOptions()).toEqual([
       { value: "codex", label: "Codex", available: true },
       { value: "claudeAgent", label: "Claude Code", available: true },
+      { value: "githubCopilot", label: "GitHub Copilot", available: true },
     ]);
   });
 });

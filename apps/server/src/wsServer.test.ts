@@ -81,6 +81,7 @@ const defaultProviderStatuses: ReadonlyArray<ServerProviderStatus> = [
 
 const defaultProviderHealthService: ProviderHealthShape = {
   getStatuses: Effect.succeed(defaultProviderStatuses),
+  checkStatus: () => Effect.succeed(defaultProviderStatuses[0]!),
 };
 
 class MockTerminalManager implements TerminalManagerShape {
@@ -252,12 +253,47 @@ function waitForMessage(ws: WebSocket): Promise<unknown> {
   });
 }
 
+async function waitForMatchingMessage(
+  ws: WebSocket,
+  predicate: (message: unknown) => boolean,
+  timeoutMs = 5_000,
+): Promise<unknown> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const remainingMs = Math.max(1, deadline - Date.now());
+    const message = await Promise.race([
+      waitForMessage(ws),
+      new Promise<symbol>((resolve) => {
+        setTimeout(() => resolve(Symbol.for("t3sparks:test-timeout")), remainingMs);
+      }),
+    ]);
+    if (typeof message === "symbol") {
+      break;
+    }
+    if (predicate(message)) {
+      return message;
+    }
+  }
+
+  throw new Error("Timed out waiting for matching WebSocket message.");
+}
+
 function asWebSocketResponse(message: unknown): WebSocketResponse | null {
   if (typeof message !== "object" || message === null) return null;
   if (!("id" in message)) return null;
   const id = (message as { id?: unknown }).id;
   if (typeof id !== "string") return null;
   return message as WebSocketResponse;
+}
+
+function isServerConfigUpdatedPush(message: unknown): message is WsPush {
+  return (
+    typeof message === "object" &&
+    message !== null &&
+    "channel" in message &&
+    (message as { channel?: unknown }).channel === WS_CHANNELS.serverConfigUpdated
+  );
 }
 
 async function sendRequest(
@@ -476,7 +512,7 @@ describe("WebSocket Server", () => {
 
   afterEach(async () => {
     for (const ws of connections) {
-      ws.close();
+      ws.terminate();
     }
     connections.length = 0;
     await closeTestServer();
@@ -759,6 +795,137 @@ describe("WebSocket Server", () => {
       availableEditors: expect.any(Array),
     });
     expectAvailableEditors((response.result as { availableEditors: unknown }).availableEditors);
+  });
+
+  it("runs github copilot health checks on demand", async () => {
+    const stateDir = makeTempDir("t3sparks-state-copilot-health-");
+    const keybindingsPath = path.join(stateDir, "keybindings.json");
+    fs.writeFileSync(keybindingsPath, "[]", "utf8");
+
+    const checkedStatus: ServerProviderStatus = {
+      provider: "githubCopilot",
+      status: "ready",
+      available: true,
+      authStatus: "authenticated",
+      checkedAt: "2026-03-31T12:00:00.000Z",
+      message: "GitHub Copilot CLI 1.0.7",
+      models: [
+        {
+          id: "copilot:gpt-5.4",
+          name: "GPT-5.4",
+          supportsReasoningEffort: false,
+        },
+      ],
+    };
+    const providerHealth: ProviderHealthShape = {
+      getStatuses: Effect.succeed([checkedStatus]),
+      checkStatus: (provider) => {
+        expect(provider).toBe("githubCopilot");
+        return Effect.succeed(checkedStatus);
+      },
+    };
+
+    server = await createTestServer({ cwd: "/my/workspace", stateDir, providerHealth });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const ws = await connectWs(port);
+    connections.push(ws);
+    await waitForMessage(ws);
+
+    const response = await sendRequest(ws, WS_METHODS.serverCheckGitHubCopilotStatus);
+    expect(response.error).toBeUndefined();
+    expect(response.result).toEqual(checkedStatus);
+
+    const push = (await waitForMatchingMessage(
+      ws,
+      (message) =>
+        isServerConfigUpdatedPush(message) &&
+        Array.isArray((message.data as { providers?: unknown }).providers) &&
+        JSON.stringify((message.data as { providers: unknown }).providers) ===
+          JSON.stringify([checkedStatus]),
+    )) as WsPush;
+    expect(push.channel).toBe(WS_CHANNELS.serverConfigUpdated);
+    expect(push.data).toEqual({
+      issues: [],
+      providers: [checkedStatus],
+    });
+    expect(fs.existsSync(keybindingsPath)).toBe(true);
+  });
+
+  it("automatically retries non-ready github copilot startup health checks", async () => {
+    const stateDir = makeTempDir("t3sparks-state-copilot-startup-retry-");
+    const keybindingsPath = path.join(stateDir, "keybindings.json");
+    fs.writeFileSync(keybindingsPath, "[]", "utf8");
+
+    const initialStatus: ServerProviderStatus = {
+      provider: "githubCopilot",
+      status: "warning",
+      available: true,
+      authStatus: "unknown",
+      checkedAt: "2026-03-31T12:00:00.000Z",
+      message: "GitHub Copilot SDK health check timed out while starting the client.",
+    };
+    const recoveredStatus: ServerProviderStatus = {
+      provider: "githubCopilot",
+      status: "ready",
+      available: true,
+      authStatus: "authenticated",
+      checkedAt: "2026-03-31T12:00:02.000Z",
+      message: "GitHub Copilot CLI 1.0.7",
+      models: [
+        {
+          id: "copilot:claude-opus-4.6",
+          name: "Claude Opus 4.6",
+          supportsReasoningEffort: false,
+        },
+      ],
+    };
+    let statuses: ReadonlyArray<ServerProviderStatus> = [initialStatus];
+    const checkStatus = vi.fn((_provider: "githubCopilot") =>
+      Effect.sync(() => {
+        statuses = [recoveredStatus];
+        return recoveredStatus;
+      }),
+    );
+    const providerHealth: ProviderHealthShape = {
+      getStatuses: Effect.sync(() => statuses),
+      checkStatus,
+    };
+
+    server = await createTestServer({ cwd: "/my/workspace", stateDir, providerHealth });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const ws = await connectWs(port);
+    connections.push(ws);
+    await waitForMessage(ws);
+
+    const push = (await waitForMatchingMessage(
+      ws,
+      (message) =>
+        isServerConfigUpdatedPush(message) &&
+        Array.isArray((message.data as { providers?: unknown }).providers) &&
+        JSON.stringify((message.data as { providers: unknown }).providers) ===
+          JSON.stringify([recoveredStatus]),
+    )) as WsPush;
+    expect(push.channel).toBe(WS_CHANNELS.serverConfigUpdated);
+    expect(push.data).toEqual({
+      issues: [],
+      providers: [recoveredStatus],
+    });
+    expect(checkStatus).toHaveBeenCalledWith("githubCopilot");
+
+    const response = await sendRequest(ws, WS_METHODS.serverGetConfig);
+    expect(response.error).toBeUndefined();
+    expect(response.result).toEqual({
+      cwd: "/my/workspace",
+      keybindingsConfigPath: keybindingsPath,
+      keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
+      issues: [],
+      providers: [recoveredStatus],
+      availableEditors: expect.any(Array),
+    });
   });
 
   it("bootstraps default keybindings file when missing", async () => {

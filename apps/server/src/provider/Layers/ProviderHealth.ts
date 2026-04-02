@@ -9,22 +9,40 @@
  * @module ProviderHealthLive
  */
 import type {
+  ProviderKind,
   ServerProviderAuthStatus,
+  ServerProviderModel,
+  ServerProviderQuotaSnapshot,
   ServerProviderStatus,
   ServerProviderStatusState,
 } from "@t3sparks/contracts";
+import { normalizeModelSlug } from "@t3sparks/shared/model";
+import { CopilotClient, type ModelInfo } from "@github/copilot-sdk";
 import { Effect, Layer, Option, Result, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { readConfiguredGeminiAuth, resolveGeminiCli } from "../../gemini/geminiCli.ts";
+import { resolveCopilotBinary } from "./copilotBinary.ts";
 import { ProviderHealth, type ProviderHealthShape } from "../Services/ProviderHealth";
 
 const DEFAULT_TIMEOUT_MS = 4_000;
 const CODEX_PROVIDER = "codex" as const;
 const GEMINI_PROVIDER = "gemini" as const;
+const GITHUB_COPILOT_PROVIDER = "githubCopilot" as const;
+
+export function getCopilotHealthCheckTimeoutMs(platform: string = process.platform): number {
+  return platform === "win32" ? 10_000 : DEFAULT_TIMEOUT_MS;
+}
 
 class GeminiProviderHealthError extends Schema.TaggedErrorClass<GeminiProviderHealthError>()(
   "GeminiProviderHealthError",
+  {
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+class CopilotProviderHealthError extends Schema.TaggedErrorClass<CopilotProviderHealthError>()(
+  "CopilotProviderHealthError",
   {
     cause: Schema.optional(Schema.Defect),
   },
@@ -36,6 +54,35 @@ export interface CommandResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly code: number;
+}
+
+interface CopilotQuotaSnapshotInfo {
+  readonly entitlementRequests: number;
+  readonly usedRequests: number;
+  readonly remainingPercentage: number;
+  readonly overage: number;
+  readonly overageAllowedWithExhaustedQuota: boolean;
+  readonly resetDate?: string;
+}
+
+interface CopilotHealthProbeResult {
+  readonly status?:
+    | {
+        readonly version?: string;
+      }
+    | undefined;
+  readonly authStatus?:
+    | {
+        readonly isAuthenticated?: boolean;
+        readonly statusMessage?: string;
+      }
+    | undefined;
+  readonly models?: ReadonlyArray<ModelInfo> | undefined;
+  readonly quota?:
+    | {
+        readonly quotaSnapshots?: Record<string, CopilotQuotaSnapshotInfo>;
+      }
+    | undefined;
 }
 
 function nonEmptyTrimmed(value: string | undefined): string | undefined {
@@ -67,6 +114,65 @@ function detailFromResult(
     return `Command exited with code ${result.code}.`;
   }
   return undefined;
+}
+
+const COPILOT_QUOTA_PRIORITY = ["premium_interactions", "chat", "completions"] as const;
+
+function compareCopilotQuotaKeys(left: string, right: string): number {
+  const leftPriority = COPILOT_QUOTA_PRIORITY.indexOf(
+    left as (typeof COPILOT_QUOTA_PRIORITY)[number],
+  );
+  const rightPriority = COPILOT_QUOTA_PRIORITY.indexOf(
+    right as (typeof COPILOT_QUOTA_PRIORITY)[number],
+  );
+  const normalizedLeftPriority = leftPriority === -1 ? Number.POSITIVE_INFINITY : leftPriority;
+  const normalizedRightPriority = rightPriority === -1 ? Number.POSITIVE_INFINITY : rightPriority;
+  return normalizedLeftPriority - normalizedRightPriority || left.localeCompare(right);
+}
+
+export function mapCopilotModel(model: ModelInfo): ServerProviderModel {
+  return {
+    id: normalizeModelSlug(model.id, "githubCopilot") ?? model.id,
+    name: model.name,
+    supportsReasoningEffort: (model.supportedReasoningEfforts?.length ?? 0) > 0,
+    ...(model.supportedReasoningEfforts && model.supportedReasoningEfforts.length > 0
+      ? { supportedReasoningEfforts: [...model.supportedReasoningEfforts] }
+      : {}),
+    ...(model.defaultReasoningEffort
+      ? { defaultReasoningEffort: model.defaultReasoningEffort }
+      : {}),
+    ...(typeof model.billing?.multiplier === "number"
+      ? { billingMultiplier: model.billing.multiplier }
+      : {}),
+  } satisfies ServerProviderModel;
+}
+
+export function mapCopilotQuotaSnapshots(
+  quotaSnapshots: Record<string, CopilotQuotaSnapshotInfo> | undefined,
+): ReadonlyArray<ServerProviderQuotaSnapshot> {
+  if (!quotaSnapshots) return [];
+
+  return Object.entries(quotaSnapshots)
+    .toSorted(([leftKey], [rightKey]) => compareCopilotQuotaKeys(leftKey, rightKey))
+    .map(([key, snapshot]) => {
+      const entitlementRequests = Math.max(0, Math.trunc(snapshot.entitlementRequests));
+      const usedRequests = Math.max(0, Math.trunc(snapshot.usedRequests));
+      const mapped: ServerProviderQuotaSnapshot = {
+        key,
+        entitlementRequests,
+        usedRequests,
+        remainingRequests: Math.max(0, entitlementRequests - usedRequests),
+        remainingPercentage: snapshot.remainingPercentage,
+        overage: Math.max(0, Math.trunc(snapshot.overage)),
+        overageAllowedWithExhaustedQuota: snapshot.overageAllowedWithExhaustedQuota,
+      };
+      return snapshot.resetDate
+        ? {
+            ...mapped,
+            resetDate: snapshot.resetDate,
+          }
+        : mapped;
+    });
 }
 
 function extractAuthBoolean(value: unknown): boolean | undefined {
@@ -124,18 +230,6 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
     };
   }
 
-  // Positive-match patterns: if the output explicitly confirms auth, return
-  // early as authenticated. These run after the negative patterns above, so
-  // "not logged in" (which contains "logged in") is already handled.
-  if (
-    lowerOutput.includes("logged in") ||
-    lowerOutput.includes("authenticated") ||
-    lowerOutput.includes("active session") ||
-    lowerOutput.includes("signed in")
-  ) {
-    return { status: "ready", authStatus: "authenticated" };
-  }
-
   const parsedAuth = (() => {
     const trimmed = result.stdout.trim();
     if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
@@ -160,6 +254,17 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
       authStatus: "unauthenticated",
       message: "Codex CLI is not authenticated. Run `codex login` and try again.",
     };
+  }
+  // Positive-match patterns: if the output explicitly confirms auth, return
+  // early as authenticated. These run after JSON parsing so structured output
+  // like {"authenticated":false} is not misclassified by substring matches.
+  if (
+    lowerOutput.includes("logged in") ||
+    lowerOutput.includes("authenticated") ||
+    lowerOutput.includes("active session") ||
+    lowerOutput.includes("signed in")
+  ) {
+    return { status: "ready", authStatus: "authenticated" };
   }
   // If JSON was parsed but no explicit auth marker found, fall through to
   // the exit-code check below rather than immediately returning "unknown".
@@ -216,7 +321,54 @@ const runCodexCommand = (args: ReadonlyArray<string>) =>
     return { stdout, stderr, code: exitCode } satisfies CommandResult;
   }).pipe(Effect.scoped);
 
+const runCommand = (commandName: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const command = ChildProcess.make(commandName, [...args], {
+      shell: process.platform === "win32",
+    });
+
+    const child = yield* spawner.spawn(command);
+    const [stdout, stderr, exitCode] = yield* Effect.all(
+      [
+        collectStreamAsString(child.stdout),
+        collectStreamAsString(child.stderr),
+        child.exitCode.pipe(Effect.map(Number)),
+      ],
+      { concurrency: "unbounded" },
+    );
+
+    return { stdout, stderr, code: exitCode } satisfies CommandResult;
+  }).pipe(Effect.scoped);
+
 // ── Health check ────────────────────────────────────────────────────
+
+async function runCopilotHealthProbe(): Promise<CopilotHealthProbeResult> {
+  const cliPath = resolveCopilotBinary();
+  const client = new CopilotClient({
+    ...(cliPath ? { cliPath } : {}),
+    logLevel: "error",
+  });
+
+  try {
+    await client.start();
+    const [status, authStatus] = await Promise.all([
+      client.getStatus(),
+      client.getAuthStatus().catch(() => undefined),
+    ]);
+    const [models, quota] =
+      authStatus?.isAuthenticated === true
+        ? await Promise.all([
+            client.listModels().catch(() => undefined),
+            client.rpc.account.getQuota().catch(() => undefined),
+          ])
+        : [undefined, undefined];
+
+    return { status, authStatus, models, quota };
+  } finally {
+    await client.stop().catch(() => []);
+  }
+}
 
 export const checkCodexProviderStatus: Effect.Effect<
   ServerProviderStatus,
@@ -364,15 +516,137 @@ export const checkGeminiProviderStatus: Effect.Effect<ServerProviderStatus, neve
   }),
 );
 
+export function makeCheckCopilotProviderStatus(
+  probe: () => Promise<CopilotHealthProbeResult> = runCopilotHealthProbe,
+  timeoutMs: number = getCopilotHealthCheckTimeoutMs(),
+): Effect.Effect<ServerProviderStatus, never> {
+  return Effect.gen(function* () {
+    const checkedAt = new Date().toISOString();
+    const result = yield* Effect.tryPromise({
+      try: probe,
+      catch: (cause) => new CopilotProviderHealthError({ cause }),
+    }).pipe(Effect.timeoutOption(timeoutMs), Effect.result);
+
+    if (Result.isFailure(result)) {
+      const error = result.failure;
+      return {
+        provider: GITHUB_COPILOT_PROVIDER,
+        status: "error" as const,
+        available: false,
+        authStatus: "unknown" as const,
+        checkedAt,
+        message:
+          error instanceof Error
+            ? `Failed to start GitHub Copilot CLI health check: ${error.message}.`
+            : "Failed to start GitHub Copilot CLI health check.",
+      } satisfies ServerProviderStatus;
+    }
+
+    if (Option.isNone(result.success)) {
+      return {
+        provider: GITHUB_COPILOT_PROVIDER,
+        status: "warning" as const,
+        available: true,
+        authStatus: "unknown" as const,
+        checkedAt,
+        message:
+          "GitHub Copilot SDK health check timed out while starting the client. Copilot chats may still work, but SDK-only metadata was not confirmed.",
+      } satisfies ServerProviderStatus;
+    }
+
+    const probeResult = result.success.value;
+    const authStatus: ServerProviderAuthStatus =
+      probeResult.authStatus?.isAuthenticated === true
+        ? "authenticated"
+        : probeResult.authStatus?.isAuthenticated === false
+          ? "unauthenticated"
+          : "unknown";
+    const status: ServerProviderStatusState =
+      authStatus === "unauthenticated" ? "error" : authStatus === "unknown" ? "warning" : "ready";
+    const quotaSnapshots = mapCopilotQuotaSnapshots(probeResult.quota?.quotaSnapshots);
+
+    return {
+      provider: GITHUB_COPILOT_PROVIDER,
+      status,
+      available: true,
+      authStatus,
+      checkedAt,
+      ...(probeResult.models && probeResult.models.length > 0
+        ? { models: probeResult.models.map(mapCopilotModel) }
+        : {}),
+      ...(quotaSnapshots.length > 0 ? { quotaSnapshots } : {}),
+      ...(probeResult.authStatus?.statusMessage
+        ? { message: probeResult.authStatus.statusMessage }
+        : probeResult.status?.version
+          ? { message: `GitHub Copilot CLI ${probeResult.status.version}` }
+          : {}),
+    } satisfies ServerProviderStatus;
+  });
+}
+
+export const checkCopilotProviderStatus = makeCheckCopilotProviderStatus();
+
 // ── Layer ───────────────────────────────────────────────────────────
 
 export const ProviderHealthLive = Layer.effect(
   ProviderHealth,
   Effect.gen(function* () {
-    const codexStatus = yield* checkCodexProviderStatus;
-    const geminiStatus = yield* checkGeminiProviderStatus;
+    const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const statusesRef = yield* Effect.sync(() =>
+      new Map<ProviderKind, ServerProviderStatus>(),
+    );
+    const seedStatuses = yield* Effect.all([
+      checkCodexProviderStatus,
+      checkGeminiProviderStatus,
+      checkCopilotProviderStatus,
+      Effect.succeed({
+        provider: "claudeAgent",
+        status: "ready",
+        available: true,
+        authStatus: "unknown",
+        checkedAt: new Date().toISOString(),
+        message: "Claude availability is determined at session start.",
+      } satisfies ServerProviderStatus),
+    ]);
+    for (const status of seedStatuses) {
+      statusesRef.set(status.provider, status);
+    }
+    const providerOrder = [
+      CODEX_PROVIDER,
+      GEMINI_PROVIDER,
+      "claudeAgent",
+      GITHUB_COPILOT_PROVIDER,
+    ] satisfies ReadonlyArray<ProviderKind>;
+
     return {
-      getStatuses: Effect.succeed([codexStatus, geminiStatus]),
+      getStatuses: Effect.sync(() =>
+        providerOrder
+          .map((provider) => statusesRef.get(provider))
+          .filter((status): status is ServerProviderStatus => status !== undefined),
+      ),
+      checkStatus: (provider) =>
+        (provider === CODEX_PROVIDER
+          ? checkCodexProviderStatus.pipe(
+              Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, childProcessSpawner),
+            )
+          : provider === GEMINI_PROVIDER
+            ? checkGeminiProviderStatus
+            : provider === GITHUB_COPILOT_PROVIDER
+              ? checkCopilotProviderStatus
+              : Effect.succeed({
+                  provider: "claudeAgent",
+                  status: "ready",
+                  available: true,
+                  authStatus: "unknown",
+                  checkedAt: new Date().toISOString(),
+                  message: "Claude availability is determined at session start.",
+                } satisfies ServerProviderStatus)).pipe(
+          Effect.tap((status) =>
+            Effect.sync(() => {
+              statusesRef.set(provider, status);
+            }),
+          ),
+        ),
     } satisfies ProviderHealthShape;
   }),
 );

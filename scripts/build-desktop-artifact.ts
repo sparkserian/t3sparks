@@ -183,15 +183,35 @@ interface StagePackageJson {
   readonly version: string;
   readonly buildVersion: string;
   readonly t3sparksCommitHash: string;
+  readonly packageManager?: string;
   readonly private: true;
   readonly description: string;
   readonly author: string;
   readonly main: string;
   readonly build: Record<string, unknown>;
   readonly dependencies: Record<string, unknown>;
+  readonly patchedDependencies?: Record<string, string>;
   readonly devDependencies: {
     readonly electron: string;
   };
+}
+
+function resolveBundledCopilotPlatformPackages(
+  platform: typeof BuildPlatform.Type,
+  arch: typeof BuildArch.Type,
+): ReadonlyArray<string> {
+  if (platform === "mac") {
+    if (arch === "universal") {
+      return ["@github/copilot-darwin-arm64", "@github/copilot-darwin-x64"];
+    }
+    return [arch === "arm64" ? "@github/copilot-darwin-arm64" : "@github/copilot-darwin-x64"];
+  }
+
+  if (platform === "linux") {
+    return [arch === "arm64" ? "@github/copilot-linux-arm64" : "@github/copilot-linux-x64"];
+  }
+
+  return [arch === "arm64" ? "@github/copilot-win32-arm64" : "@github/copilot-win32-x64"];
 }
 
 const AzureTrustedSigningOptionsConfig = Config.all({
@@ -466,6 +486,7 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     appId: "com.sparkserian.t3sparks",
     productName,
     artifactName: "T3-Sparks-${version}-${arch}.${ext}",
+    asarUnpack: ["node_modules/@github/copilot*/**/*"],
     directories: {
       buildResources: "apps/desktop/resources",
     },
@@ -573,6 +594,18 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
         cause,
       }),
   });
+  const bundledCopilotVersion = serverDependencies["@github/copilot"];
+  if (typeof bundledCopilotVersion !== "string" || bundledCopilotVersion.trim().length === 0) {
+    return yield* new BuildScriptError({
+      message: "Could not resolve bundled @github/copilot version from apps/server/package.json.",
+    });
+  }
+  const bundledCopilotPlatformDependencies = Object.fromEntries(
+    resolveBundledCopilotPlatformPackages(options.platform, options.arch).map((dependencyName) => [
+      dependencyName,
+      bundledCopilotVersion,
+    ]),
+  );
 
   const appVersion = options.version ?? serverPackageJson.version;
   const commitHash = resolveGitCommitHash(repoRoot);
@@ -626,11 +659,22 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   yield* assertPlatformBuildResources(options.platform, stageResourcesDir, options.verbose);
 
+  const rootPatchedDependencies = rootPackageJson.patchedDependencies;
+  if (rootPatchedDependencies) {
+    for (const relativePatchPath of Object.values(rootPatchedDependencies)) {
+      const sourcePatchPath = path.join(repoRoot, relativePatchPath);
+      const targetPatchPath = path.join(stageAppDir, relativePatchPath);
+      yield* fs.makeDirectory(path.dirname(targetPatchPath), { recursive: true });
+      yield* fs.copyFile(sourcePatchPath, targetPatchPath);
+    }
+  }
+
   const stagePackageJson: StagePackageJson = {
     name: "t3-sparks-desktop",
     version: appVersion,
     buildVersion: appVersion,
     t3sparksCommitHash: commitHash,
+    packageManager: rootPackageJson.packageManager,
     private: true,
     description: "T3 Sparks desktop build",
     author: "T3 Sparks",
@@ -643,8 +687,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     ),
     dependencies: {
       ...resolvedServerDependencies,
+      ...bundledCopilotPlatformDependencies,
       ...resolvedDesktopRuntimeDependencies,
     },
+    patchedDependencies: rootPatchedDependencies,
     devDependencies: {
       electron: electronVersion,
     },

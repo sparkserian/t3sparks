@@ -214,6 +214,29 @@ describe("wsNativeApi", () => {
     expect(warnSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("requests github copilot health checks through the server API", async () => {
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    requestMock.mockResolvedValue({
+      provider: "githubCopilot",
+      status: "ready",
+      available: true,
+      authStatus: "authenticated",
+      checkedAt: "2026-03-31T12:00:00.000Z",
+    });
+
+    const api = createWsNativeApi();
+    const result = await api.server.checkGitHubCopilotStatus();
+
+    expect(requestMock).toHaveBeenCalledWith(WS_METHODS.serverCheckGitHubCopilotStatus);
+    expect(result).toEqual({
+      provider: "githubCopilot",
+      status: "ready",
+      available: true,
+      authStatus: "authenticated",
+      checkedAt: "2026-03-31T12:00:00.000Z",
+    });
+  });
+
   it("forwards valid terminal and orchestration events", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { createWsNativeApi } = await import("./wsNativeApi");

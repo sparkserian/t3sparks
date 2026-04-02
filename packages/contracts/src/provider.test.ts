@@ -34,6 +34,23 @@ describe("ProviderSessionStartInput", () => {
     expect(parsed.providerOptions?.codex?.homePath).toBe("/tmp/.codex");
   });
 
+  it("accepts github copilot-compatible payloads", () => {
+    const parsed = decodeProviderSessionStartInput({
+      threadId: "thread-1",
+      provider: "githubCopilot",
+      model: "copilot:claude-opus-4.6",
+      runtimeMode: "full-access",
+      providerOptions: {
+        githubCopilot: {
+          binaryPath: "/usr/local/bin/copilot",
+        },
+      },
+    });
+
+    expect(parsed.provider).toBe("githubCopilot");
+    expect(parsed.providerOptions?.githubCopilot?.binaryPath).toBe("/usr/local/bin/copilot");
+  });
+
   it("rejects payloads without runtime mode", () => {
     expect(() =>
       decodeProviderSessionStartInput({

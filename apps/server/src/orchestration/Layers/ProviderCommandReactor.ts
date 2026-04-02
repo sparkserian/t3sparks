@@ -13,7 +13,7 @@ import {
   type RuntimeMode,
   type TurnId,
 } from "@t3sparks/contracts";
-import { Cache, Cause, Duration, Effect, Layer, Option, Queue, Schema, Stream } from "effect";
+import { Cache, Cause, Duration, Effect, FileSystem, Layer, Option, Queue, Schema, Stream } from "effect";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
@@ -73,6 +73,8 @@ const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 const WORKTREE_BRANCH_PREFIX = "t3sparks";
 const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(`^${WORKTREE_BRANCH_PREFIX}\\/[0-9a-f]{8}$`);
+const WORKSPACE_PATH_CHECK_TIMEOUT = Duration.seconds(2);
+const WORKSPACE_PATH_CHECK_TIMEOUT_SECONDS = 2;
 
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) {
@@ -104,6 +106,11 @@ function isTemporaryWorktreeBranch(branch: string): boolean {
   return TEMP_WORKTREE_BRANCH_PATTERN.test(branch.trim().toLowerCase());
 }
 
+function formatWorkspaceUnavailableMessage(cwd: string, detail?: string): string {
+  const suffix = detail ? ` ${detail}` : "";
+  return `Project workspace '${cwd}' is unavailable. This thread still points at a moved, missing, or cloud-only directory. Reopen the project from its current local path or update the project workspace root.${suffix}`;
+}
+
 function buildGeneratedWorktreeBranchName(raw: string): string {
   const normalized = raw
     .trim()
@@ -132,6 +139,7 @@ const make = Effect.gen(function* () {
   const providerService = yield* ProviderService;
   const git = yield* GitCore;
   const textGeneration = yield* TextGeneration;
+  const fileSystem = yield* FileSystem.FileSystem;
   const handledTurnStartKeys = yield* Cache.make<string, true>({
     capacity: HANDLED_TURN_START_KEY_MAX,
     timeToLive: HANDLED_TURN_START_KEY_TTL,
@@ -196,6 +204,37 @@ const make = Effect.gen(function* () {
     return readModel.threads.find((entry) => entry.id === threadId);
   });
 
+  const ensureWorkspaceDirectoryIsAccessible = Effect.fnUntraced(function* (cwd: string) {
+    const stat = yield* fileSystem.stat(cwd).pipe(
+      Effect.timeoutOption(WORKSPACE_PATH_CHECK_TIMEOUT),
+      Effect.catch((error) =>
+        Effect.fail(new Error(formatWorkspaceUnavailableMessage(cwd, toErrorMessage(error)))),
+      ),
+    );
+
+    if (Option.isNone(stat)) {
+      return yield* Effect.fail(
+        new Error(
+          formatWorkspaceUnavailableMessage(
+            cwd,
+            `The path did not respond within ${WORKSPACE_PATH_CHECK_TIMEOUT_SECONDS} seconds.`,
+          ),
+        ),
+      );
+    }
+
+    if (stat.value.type !== "Directory") {
+      return yield* Effect.fail(
+        new Error(
+          formatWorkspaceUnavailableMessage(
+            cwd,
+            `Expected a directory, but found ${stat.value.type.toLowerCase()}.`,
+          ),
+        ),
+      );
+    }
+  });
+
   const ensureSessionForThread = Effect.fnUntraced(function* (
     threadId: ThreadId,
     createdAt: string,
@@ -204,6 +243,7 @@ const make = Effect.gen(function* () {
       readonly model?: string;
       readonly modelOptions?: ProviderModelOptions;
       readonly serviceTier?: ProviderServiceTier | null;
+      readonly runtimeMode?: RuntimeMode;
     },
   ) {
     const readModel = yield* orchestrationEngine.getReadModel();
@@ -212,11 +252,12 @@ const make = Effect.gen(function* () {
       return yield* Effect.die(new Error(`Thread '${threadId}' was not found in read model.`));
     }
 
-    const desiredRuntimeMode = thread.runtimeMode;
+    const desiredRuntimeMode = options?.runtimeMode ?? thread.runtimeMode;
     const currentProvider: ProviderKind | undefined =
       thread.session?.providerName === "codex" ||
       thread.session?.providerName === "claudeAgent" ||
-      thread.session?.providerName === "gemini"
+      thread.session?.providerName === "gemini" ||
+      thread.session?.providerName === "githubCopilot"
         ? thread.session.providerName
         : undefined;
     const preferredProvider: ProviderKind | undefined = options?.provider ?? currentProvider;
@@ -225,6 +266,10 @@ const make = Effect.gen(function* () {
       thread,
       projects: readModel.projects,
     });
+
+    if (effectiveCwd) {
+      yield* ensureWorkspaceDirectoryIsAccessible(effectiveCwd);
+    }
 
     const resolveActiveSession = (threadId: ThreadId) =>
       providerService.listSessions().pipe(
@@ -331,6 +376,7 @@ const make = Effect.gen(function* () {
     readonly model?: string;
     readonly serviceTier?: ProviderServiceTier | null;
     readonly modelOptions?: ProviderModelOptions;
+    readonly runtimeMode?: RuntimeMode;
     readonly interactionMode?: "default" | "plan";
     readonly createdAt: string;
   }) {
@@ -343,6 +389,7 @@ const make = Effect.gen(function* () {
       ...(input.model !== undefined ? { model: input.model } : {}),
       ...(input.serviceTier !== undefined ? { serviceTier: input.serviceTier } : {}),
       ...(input.modelOptions !== undefined ? { modelOptions: input.modelOptions } : {}),
+      ...(input.runtimeMode !== undefined ? { runtimeMode: input.runtimeMode } : {}),
     });
     const normalizedInput = toNonEmptyProviderInput(input.messageText);
     const normalizedAttachments = input.attachments ?? [];
@@ -484,9 +531,29 @@ const make = Effect.gen(function* () {
       ...(event.payload.customInstructions !== undefined
         ? { customInstructions: event.payload.customInstructions }
         : {}),
+      runtimeMode: event.payload.runtimeMode,
       interactionMode: event.payload.interactionMode,
       createdAt: event.payload.createdAt,
-    });
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.gen(function* () {
+          const error = Cause.squash(cause);
+          const detail = toErrorMessage(error);
+          yield* appendProviderFailureActivity({
+            threadId: event.payload.threadId,
+            kind: "provider.turn.start.failed",
+            summary: "Provider turn start failed",
+            detail,
+            turnId: null,
+            createdAt: event.payload.createdAt,
+          });
+          yield* Effect.logWarning("provider turn start failed", {
+            threadId: event.payload.threadId,
+            detail,
+          });
+        }),
+      ),
+    );
   });
 
   const processTurnInterruptRequested = Effect.fnUntraced(function* (

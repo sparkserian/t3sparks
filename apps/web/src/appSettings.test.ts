@@ -141,6 +141,12 @@ describe("getAppModelOptions", () => {
       "gemini-experimental",
     ]);
   });
+
+  it("includes GPT-5.4 in the built-in Copilot fallback options", () => {
+    const options = getAppModelOptions("githubCopilot", []);
+
+    expect(options.some((option) => option.slug === "copilot:gpt-5.4")).toBe(true);
+  });
 });
 
 describe("resolveAppModelSelection", () => {
@@ -156,6 +162,18 @@ describe("resolveAppModelSelection", () => {
 
   it("falls back to Gemini's provider default when no Gemini model is selected", () => {
     expect(resolveAppModelSelection("gemini", [], "")).toBe("auto");
+  });
+
+  it("normalizes Copilot aliases against the fallback model catalog", () => {
+    expect(resolveAppModelSelection("githubCopilot", [], "gpt-5.4")).toBe("copilot:gpt-5.4");
+  });
+
+  it("preserves Copilot models supplied by runtime metadata", () => {
+    expect(
+      resolveAppModelSelection("githubCopilot", [], "gpt-5.4-mini", [
+        { slug: "gpt-5.4-mini", name: "GPT-5.4 Mini" },
+      ]),
+    ).toBe("copilot:gpt-5.4-mini");
   });
 });
 

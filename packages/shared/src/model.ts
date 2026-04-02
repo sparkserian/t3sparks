@@ -19,11 +19,13 @@ const MODEL_SLUG_SET_BY_PROVIDER: Record<ProviderKind, ReadonlySet<ModelSlug>> =
   codex: new Set(MODEL_OPTIONS_BY_PROVIDER.codex.map((option) => option.slug)),
   claudeAgent: new Set(MODEL_OPTIONS_BY_PROVIDER.claudeAgent.map((option) => option.slug)),
   gemini: new Set(MODEL_OPTIONS_BY_PROVIDER.gemini.map((option) => option.slug)),
+  githubCopilot: new Set(MODEL_OPTIONS_BY_PROVIDER.githubCopilot.map((option) => option.slug)),
 };
 
 const CLAUDE_OPUS_4_6_MODEL = "claude-opus-4-6";
 const CLAUDE_SONNET_4_6_MODEL = "claude-sonnet-4-6";
 const CLAUDE_HAIKU_4_5_MODEL = "claude-haiku-4-5";
+export const GITHUB_COPILOT_MODEL_PREFIX = "copilot:";
 
 export function getModelOptions(provider: ProviderKind = "codex") {
   return MODEL_OPTIONS_BY_PROVIDER[provider];
@@ -75,6 +77,14 @@ export function normalizeModelSlug(
   const aliased = Object.prototype.hasOwnProperty.call(aliases, trimmed)
     ? aliases[trimmed]
     : undefined;
+  if (provider === "githubCopilot") {
+    if (typeof aliased === "string") {
+      return aliased;
+    }
+    return trimmed.startsWith(GITHUB_COPILOT_MODEL_PREFIX)
+      ? (trimmed as ModelSlug)
+      : (`${GITHUB_COPILOT_MODEL_PREFIX}${trimmed}` as ModelSlug);
+  }
   return typeof aliased === "string" ? aliased : (trimmed as ModelSlug);
 }
 
@@ -103,6 +113,14 @@ export function inferProviderForModel(
   model: string | null | undefined,
   fallback: ProviderKind = "codex",
 ): ProviderKind {
+  const normalizedGitHubCopilot = normalizeModelSlug(model, "githubCopilot");
+  if (
+    normalizedGitHubCopilot &&
+    MODEL_SLUG_SET_BY_PROVIDER.githubCopilot.has(normalizedGitHubCopilot)
+  ) {
+    return "githubCopilot";
+  }
+
   const normalizedClaude = normalizeModelSlug(model, "claudeAgent");
   if (normalizedClaude && MODEL_SLUG_SET_BY_PROVIDER.claudeAgent.has(normalizedClaude)) {
     return "claudeAgent";
@@ -120,6 +138,9 @@ export function inferProviderForModel(
 
   if (typeof model === "string") {
     const trimmed = model.trim();
+    if (trimmed.startsWith(GITHUB_COPILOT_MODEL_PREFIX)) {
+      return "githubCopilot";
+    }
     if (trimmed.startsWith("claude-")) {
       return "claudeAgent";
     }
@@ -129,6 +150,29 @@ export function inferProviderForModel(
   }
 
   return fallback;
+}
+
+export function fromGitHubCopilotModelId(
+  modelId: string | null | undefined,
+): ModelSlug | null {
+  if (typeof modelId !== "string") {
+    return null;
+  }
+  const trimmed = modelId.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return normalizeModelSlug(trimmed, "githubCopilot");
+}
+
+export function toGitHubCopilotModelId(model: string | null | undefined): string | null {
+  const normalized = normalizeModelSlug(model, "githubCopilot");
+  if (!normalized) {
+    return null;
+  }
+  return normalized.startsWith(GITHUB_COPILOT_MODEL_PREFIX)
+    ? normalized.slice(GITHUB_COPILOT_MODEL_PREFIX.length)
+    : normalized;
 }
 
 export function getReasoningEffortOptions(provider: "codex"): ReadonlyArray<CodexReasoningEffort>;

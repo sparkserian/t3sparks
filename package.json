@@ -1,7 +1,7 @@
 {
   "name": "@t3sparks/monorepo",
   "private": true,
-  "version": "0.0.24",
+  "version": "0.0.38",
   "workspaces": {
     "packages": [
       "apps/*",
@@ -63,6 +63,9 @@
   "engines": {
     "bun": "^1.3.9",
     "node": "^24.13.1"
+  },
+  "patchedDependencies": {
+    "@github/copilot-sdk@0.1.32": "patches/@github%2Fcopilot-sdk@0.1.32.patch"
   },
   "packageManager": "bun@1.3.9",
   "msw": {

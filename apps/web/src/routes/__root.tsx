@@ -164,6 +164,7 @@ function EventRouter() {
   });
   const pathnameRef = useRef(pathname);
   const lastConfigIssuesSignatureRef = useRef<string | null>(null);
+  const lastProviderStatusesSignatureRef = useRef<string | null>(null);
   const handledBootstrapThreadIdRef = useRef<string | null>(null);
 
   pathnameRef.current = pathname;
@@ -265,15 +266,23 @@ function EventRouter() {
       })().catch(() => undefined);
     });
     const unsubServerConfigUpdated = onServerConfigUpdated((payload) => {
-      const signature = JSON.stringify(payload.issues);
-      if (lastConfigIssuesSignatureRef.current === signature) {
+      const issuesSignature = JSON.stringify(payload.issues);
+      const providerSignature = JSON.stringify(payload.providers);
+      const issuesChanged = lastConfigIssuesSignatureRef.current !== issuesSignature;
+      const providersChanged = lastProviderStatusesSignatureRef.current !== providerSignature;
+      lastConfigIssuesSignatureRef.current = issuesSignature;
+      lastProviderStatusesSignatureRef.current = providerSignature;
+
+      if (!issuesChanged && !providersChanged) {
         return;
       }
-      lastConfigIssuesSignatureRef.current = signature;
 
       void queryClient.invalidateQueries({
         queryKey: serverQueryKeys.config(),
       });
+      if (!issuesChanged) {
+        return;
+      }
       const issue = payload.issues.find((entry) =>
         entry.kind.startsWith("keybindings."),
       );

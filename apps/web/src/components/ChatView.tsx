@@ -3,10 +3,8 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   EDITORS,
   type EditorId,
-  type KeybindingCommand,
   type CodexReasoningEffort,
   type MessageId,
-  type ProjectId,
   type ProjectEntry,
   type ProjectScript,
   type ModelSlug,
@@ -27,7 +25,6 @@ import {
   getDefaultReasoningEffort,
   getReasoningEffortOptions,
   normalizeModelSlug,
-  resolveModelSlugForProvider,
 } from "@t3sparks/shared/model";
 import {
   memo,
@@ -143,6 +140,7 @@ import {
   LockIcon,
   LockOpenIcon,
   PlusIcon,
+  TerminalSquare,
   Undo2Icon,
   XIcon,
   CopyIcon,
@@ -171,6 +169,7 @@ import {
   ClaudeAI,
   CursorIcon,
   Gemini,
+  GitHubCopilot,
   Icon,
   OpenAI,
   OpenCodeIcon,
@@ -191,11 +190,7 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { toastManager } from "./ui/toast";
-import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
-import ProjectScriptsControl, { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import {
-  commandForProjectScript,
-  nextProjectScriptId,
   projectScriptRuntimeEnv,
   projectScriptIdFromCommand,
   setupProjectScript,
@@ -217,6 +212,11 @@ import {
   getModelOptionsForProvider,
   normalizeActiveComposerProvider,
 } from "./providerModelOptions";
+import {
+  deriveCopilotQuotaSummary,
+  normalizeCopilotProviderModels,
+  type CopilotProviderModelMetadata,
+} from "./copilotProviderStatus";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -656,7 +656,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const [sendPhase, setSendPhase] = useState<SendPhase>("idle");
   const [isConnecting, _setIsConnecting] = useState(false);
   const [isRevertingCheckpoint, setIsRevertingCheckpoint] = useState(false);
-  const [respondingRequestIds, setRespondingRequestIds] = useState<ApprovalRequestId[]>([]);
+  const [respondingApprovalDecisionByRequestId, setRespondingApprovalDecisionByRequestId] =
+    useState<Record<string, ProviderApprovalDecision>>({});
   const [respondingUserInputRequestIds, setRespondingUserInputRequestIds] = useState<
     ApprovalRequestId[]
   >([]);
@@ -777,6 +778,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
   const activeProject = projects.find((p) => p.id === activeThread?.projectId);
+  const serverConfigQuery = useQuery(serverConfigQueryOptions());
+  const providerStatuses = serverConfigQuery.data?.providers ?? EMPTY_PROVIDER_STATUSES;
+  const copilotProviderStatus =
+    providerStatuses.find((status) => status.provider === "githubCopilot") ?? null;
+  const copilotProviderModels = useMemo(
+    () => normalizeCopilotProviderModels(copilotProviderStatus?.models),
+    [copilotProviderStatus?.models],
+  );
+  const copilotQuotaSummary = useMemo(
+    () => deriveCopilotQuotaSummary(copilotProviderStatus?.quotaSnapshots),
+    [copilotProviderStatus?.quotaSnapshots],
+  );
 
   useEffect(() => {
     if (!activeThread?.id) return;
@@ -804,11 +817,32 @@ export default function ChatView({ threadId }: ChatViewProps) {
     selectedProviderByThreadId ?? sessionProvider ?? null,
   );
   const canAttachImages = selectedProvider === "codex";
-  const baseThreadModel = resolveModelSlugForProvider(
-    selectedProvider,
-    activeThread?.model ?? activeProject?.model ?? getDefaultModel(selectedProvider),
-  );
   const customModelsForSelectedProvider = getCustomModelsForProvider(settings, selectedProvider);
+  const additionalModelOptionsByProvider = useMemo(
+    () => ({
+      codex: [] as const,
+      claudeAgent: [] as const,
+      gemini: [] as const,
+      githubCopilot: copilotProviderModels,
+    }),
+    [copilotProviderModels],
+  );
+  const baseThreadModel = useMemo(
+    () =>
+      resolveAppModelSelection(
+        selectedProvider,
+        customModelsForSelectedProvider,
+        activeThread?.model ?? activeProject?.model ?? getDefaultModel(selectedProvider),
+        additionalModelOptionsByProvider[selectedProvider],
+      ) as ModelSlug,
+    [
+      activeProject?.model,
+      activeThread?.model,
+      additionalModelOptionsByProvider,
+      customModelsForSelectedProvider,
+      selectedProvider,
+    ],
+  );
   const selectedModel = useMemo(() => {
     const draftModel = composerDraft.model;
     if (!draftModel) {
@@ -818,8 +852,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
       selectedProvider,
       customModelsForSelectedProvider,
       draftModel,
+      additionalModelOptionsByProvider[selectedProvider],
     ) as ModelSlug;
-  }, [baseThreadModel, composerDraft.model, customModelsForSelectedProvider, selectedProvider]);
+  }, [
+    additionalModelOptionsByProvider,
+    baseThreadModel,
+    composerDraft.model,
+    customModelsForSelectedProvider,
+    selectedProvider,
+  ]);
   const reasoningOptions = getReasoningEffortOptions(selectedProvider);
   const supportsReasoningEffort = reasoningOptions.length > 0;
   const selectedEffort = composerDraft.effort ?? getDefaultReasoningEffort(selectedProvider);
@@ -846,8 +887,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
   }, [selectedCodexFastModeEnabled, selectedEffort, selectedProvider, supportsReasoningEffort]);
   const selectedModelForPicker = selectedModel;
   const modelOptionsByProvider = useMemo(
-    () => getCustomModelOptionsByProvider(settings),
-    [settings],
+    () => getCustomModelOptionsByProvider(settings, additionalModelOptionsByProvider),
+    [additionalModelOptionsByProvider, settings],
   );
   const selectedModelForPickerWithCustomFallback = useMemo(() => {
     const currentOptions = getModelOptionsForProvider(modelOptionsByProvider, selectedProvider);
@@ -954,6 +995,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
     latestTurnSettled &&
     activeProposedPlan !== null;
   const activePendingApproval = pendingApprovals[0] ?? null;
+  const activePendingApprovalDecision = activePendingApproval
+    ? (respondingApprovalDecisionByRequestId[activePendingApproval.requestId] ?? null)
+    : null;
   const isComposerApprovalState = activePendingApproval !== null;
   const showComposerOverlayPrimaryAction =
     !activePendingApproval && pendingUserInputs.length === 0 && !showPlanFollowUpPrompt;
@@ -1199,7 +1243,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const effectivePathQuery = pathTriggerQuery.length > 0 ? debouncedPathQuery : "";
   const branchesQuery = useQuery(gitBranchesQueryOptions(gitCwd));
-  const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const workspaceEntriesQuery = useQuery(
     projectSearchEntriesQueryOptions({
       cwd: gitCwd,
@@ -1291,7 +1334,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const keybindings = serverConfigQuery.data?.keybindings ?? EMPTY_KEYBINDINGS;
   const availableEditors = serverConfigQuery.data?.availableEditors ?? EMPTY_AVAILABLE_EDITORS;
-  const providerStatuses = serverConfigQuery.data?.providers ?? EMPTY_PROVIDER_STATUSES;
   const activeProvider = activeThread?.session?.provider ?? selectedProvider;
   const [geminiSetupOpen, setGeminiSetupOpen] = useState(false);
   const [collapsedPlanPanelByThreadId, setCollapsedPlanPanelByThreadId] = useState<
@@ -1346,6 +1388,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const closeTerminalShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "terminal.close"),
+    [keybindings],
+  );
+  const toggleTerminalShortcutLabel = useMemo(
+    () => shortcutLabelForCommand(keybindings, "terminal.toggle"),
     [keybindings],
   );
   const diffPanelShortcutLabel = useMemo(
@@ -1688,106 +1734,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
       [activePlanPanelKey]: !existing[activePlanPanelKey],
     }));
   }, [activePlanPanelKey]);
-  const persistProjectScripts = useCallback(
-    async (input: {
-      projectId: ProjectId;
-      projectCwd: string;
-      previousScripts: ProjectScript[];
-      nextScripts: ProjectScript[];
-      keybinding?: string | null;
-      keybindingCommand: KeybindingCommand;
-    }) => {
-      const api = readNativeApi();
-      if (!api) return;
-
-      await api.orchestration.dispatchCommand({
-        type: "project.meta.update",
-        commandId: newCommandId(),
-        projectId: input.projectId,
-        scripts: input.nextScripts,
-      });
-
-      const keybindingRule = decodeProjectScriptKeybindingRule({
-        keybinding: input.keybinding,
-        command: input.keybindingCommand,
-      });
-
-      if (isElectron && keybindingRule) {
-        await api.server.upsertKeybinding(keybindingRule);
-        await queryClient.invalidateQueries({ queryKey: serverQueryKeys.all });
-      }
-    },
-    [queryClient],
-  );
-  const saveProjectScript = useCallback(
-    async (input: NewProjectScriptInput) => {
-      if (!activeProject) return;
-      const nextId = nextProjectScriptId(
-        input.name,
-        activeProject.scripts.map((script) => script.id),
-      );
-      const nextScript: ProjectScript = {
-        id: nextId,
-        name: input.name,
-        command: input.command,
-        icon: input.icon,
-        runOnWorktreeCreate: input.runOnWorktreeCreate,
-      };
-      const nextScripts = input.runOnWorktreeCreate
-        ? [
-            ...activeProject.scripts.map((script) =>
-              script.runOnWorktreeCreate ? { ...script, runOnWorktreeCreate: false } : script,
-            ),
-            nextScript,
-          ]
-        : [...activeProject.scripts, nextScript];
-
-      await persistProjectScripts({
-        projectId: activeProject.id,
-        projectCwd: activeProject.cwd,
-        previousScripts: activeProject.scripts,
-        nextScripts,
-        keybinding: input.keybinding,
-        keybindingCommand: commandForProjectScript(nextId),
-      });
-    },
-    [activeProject, persistProjectScripts],
-  );
-  const updateProjectScript = useCallback(
-    async (scriptId: string, input: NewProjectScriptInput) => {
-      if (!activeProject) return;
-      const existingScript = activeProject.scripts.find((script) => script.id === scriptId);
-      if (!existingScript) {
-        throw new Error("Script not found.");
-      }
-
-      const updatedScript: ProjectScript = {
-        ...existingScript,
-        name: input.name,
-        command: input.command,
-        icon: input.icon,
-        runOnWorktreeCreate: input.runOnWorktreeCreate,
-      };
-      const nextScripts = activeProject.scripts.map((script) =>
-        script.id === scriptId
-          ? updatedScript
-          : input.runOnWorktreeCreate
-            ? { ...script, runOnWorktreeCreate: false }
-            : script,
-      );
-
-      await persistProjectScripts({
-        projectId: activeProject.id,
-        projectCwd: activeProject.cwd,
-        previousScripts: activeProject.scripts,
-        nextScripts,
-        keybinding: input.keybinding,
-        keybindingCommand: commandForProjectScript(scriptId),
-      });
-    },
-    [activeProject, persistProjectScripts],
-  );
-
   const handleRuntimeModeChange = useCallback(
     (mode: RuntimeMode) => {
       if (mode === runtimeMode) return;
@@ -2888,8 +2834,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
       const api = readNativeApi();
       if (!api || !activeThreadId) return;
 
-      setRespondingRequestIds((existing) =>
-        existing.includes(requestId) ? existing : [...existing, requestId],
+      setRespondingApprovalDecisionByRequestId((existing) =>
+        existing[requestId] ? existing : { ...existing, [requestId]: decision },
       );
       await api.orchestration
         .dispatchCommand({
@@ -2906,7 +2852,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
             err instanceof Error ? err.message : "Failed to submit approval decision.",
           );
         });
-      setRespondingRequestIds((existing) => existing.filter((id) => id !== requestId));
+      setRespondingApprovalDecisionByRequestId((existing) => {
+        const next = { ...existing };
+        delete next[requestId];
+        return next;
+      });
     },
     [activeThreadId, setStoreThreadError],
   );
@@ -3272,7 +3222,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setComposerDraftProvider(activeThread.id, provider);
       setComposerDraftModel(
         activeThread.id,
-        resolveAppModelSelection(provider, getCustomModelsForProvider(settings, provider), model),
+        resolveAppModelSelection(
+          provider,
+          getCustomModelsForProvider(settings, provider),
+          model,
+        ),
       );
       if (
         provider === "gemini" &&
@@ -3607,20 +3561,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
           activeProjectName={activeProject?.name}
           activeProjectCwd={activeProject?.cwd ?? null}
           openInCwd={activeThread.worktreePath ?? activeProject?.cwd ?? null}
-          activeProjectScripts={activeProject?.scripts}
-          preferredScriptId={
-            activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
-          }
           keybindings={keybindings}
           availableEditors={availableEditors}
+          terminalOpen={terminalState.terminalOpen}
+          terminalToggleShortcutLabel={toggleTerminalShortcutLabel}
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
-          onRunProjectScript={(script) => {
-            void runProjectScript(script);
-          }}
-          onAddProjectScript={saveProjectScript}
-          onUpdateProjectScript={updateProjectScript}
+          onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
         />
       </header>
@@ -3934,7 +3882,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
               <div className="flex items-center justify-end gap-2 px-2.5 pb-2.5 sm:px-3 sm:pb-3">
                 <ComposerPendingApprovalActions
                   requestId={activePendingApproval.requestId}
-                  isResponding={respondingRequestIds.includes(activePendingApproval.requestId)}
+                  respondingDecision={activePendingApprovalDecision}
                   onRespondToApproval={onRespondToApproval}
                 />
               </div>
@@ -3984,6 +3932,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     model={selectedModelForPickerWithCustomFallback}
                     lockedProvider={lockedProvider}
                     modelOptionsByProvider={modelOptionsByProvider}
+                    copilotModels={copilotProviderModels}
+                    copilotQuotaSummary={copilotQuotaSummary}
                     serviceTierSetting={selectedServiceTierSetting}
                     onProviderModelChange={onProviderModelSelect}
                   />
@@ -4322,16 +4272,14 @@ interface ChatHeaderProps {
   activeProjectName: string | undefined;
   activeProjectCwd: string | null;
   openInCwd: string | null;
-  activeProjectScripts: ProjectScript[] | undefined;
-  preferredScriptId: string | null;
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
+  terminalOpen: boolean;
+  terminalToggleShortcutLabel: string | null;
   diffToggleShortcutLabel: string | null;
   gitCwd: string | null;
   diffOpen: boolean;
-  onRunProjectScript: (script: ProjectScript) => void;
-  onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
-  onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
+  onToggleTerminal: () => void;
   onToggleDiff: () => void;
 }
 
@@ -4341,16 +4289,14 @@ const ChatHeader = memo(function ChatHeader({
   activeProjectName,
   activeProjectCwd,
   openInCwd,
-  activeProjectScripts,
-  preferredScriptId,
   keybindings,
   availableEditors,
+  terminalOpen,
+  terminalToggleShortcutLabel,
   diffToggleShortcutLabel,
   gitCwd,
   diffOpen,
-  onRunProjectScript,
-  onAddProjectScript,
-  onUpdateProjectScript,
+  onToggleTerminal,
   onToggleDiff,
 }: ChatHeaderProps) {
   const [projectNotesOpen, setProjectNotesOpen] = useState(false);
@@ -4374,16 +4320,23 @@ const ChatHeader = memo(function ChatHeader({
         )}
       </div>
       <div className="@container/header-actions flex min-w-0 flex-1 items-center justify-end gap-2 @sm/header-actions:gap-3">
-        {activeProjectScripts && (
-          <ProjectScriptsControl
-            scripts={activeProjectScripts}
-            keybindings={keybindings}
-            preferredScriptId={preferredScriptId}
-            onRunScript={onRunProjectScript}
-            onAddScript={onAddProjectScript}
-            onUpdateScript={onUpdateProjectScript}
-          />
-        )}
+        <Button
+          size="xs"
+          variant="outline"
+          onClick={onToggleTerminal}
+          title={
+            terminalToggleShortcutLabel
+              ? `${terminalOpen ? "Hide" : "Show"} terminal (${terminalToggleShortcutLabel})`
+              : terminalOpen
+                ? "Hide terminal"
+                : "Show terminal"
+          }
+        >
+          <TerminalSquare className="size-3.5" />
+          <span className="sr-only @sm/header-actions:not-sr-only @sm/header-actions:ml-0.5">
+            Terminal
+          </span>
+        </Button>
         {activeProjectName && activeProjectCwd && (
           <>
             <Button
@@ -4534,10 +4487,10 @@ const ProviderHealthBanner = memo(function ProviderHealthBanner({
 
   return (
     <div className="pt-3 mx-auto max-w-3xl">
-      <Alert variant={status.status === "error" ? "error" : "warning"}>
+        <Alert variant={status.status === "error" ? "error" : "warning"}>
         <CircleAlertIcon />
         <AlertTitle>
-          {status.provider === "codex" ? "Codex provider status" : `${status.provider} status`}
+          {`${getProviderDisplayName(status.provider)} status`}
         </AlertTitle>
         <AlertDescription className="line-clamp-3" title={status.message ?? defaultMessage}>
           {status.message ?? defaultMessage}
@@ -4588,7 +4541,7 @@ const ComposerPendingApprovalPanel = memo(function ComposerPendingApprovalPanel(
 
 interface ComposerPendingApprovalActionsProps {
   requestId: ApprovalRequestId;
-  isResponding: boolean;
+  respondingDecision: ProviderApprovalDecision | null;
   onRespondToApproval: (
     requestId: ApprovalRequestId,
     decision: ProviderApprovalDecision,
@@ -4597,42 +4550,99 @@ interface ComposerPendingApprovalActionsProps {
 
 const ComposerPendingApprovalActions = memo(function ComposerPendingApprovalActions({
   requestId,
-  isResponding,
+  respondingDecision,
   onRespondToApproval,
 }: ComposerPendingApprovalActionsProps) {
+  const isBusy = respondingDecision !== null;
+  const renderButtonLabel = (
+    decision: ProviderApprovalDecision,
+    idleLabel: string,
+    busyLabel: string,
+  ) => {
+    if (respondingDecision !== decision) {
+      return idleLabel;
+    }
+    return (
+      <span className="inline-flex items-center gap-2">
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 14 14"
+          fill="none"
+          className="animate-spin"
+          aria-hidden="true"
+        >
+          <circle
+            cx="7"
+            cy="7"
+            r="5.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeDasharray="20 12"
+          />
+        </svg>
+        {busyLabel}
+      </span>
+    );
+  };
+
+  const buttonClassName = (decision: ProviderApprovalDecision) =>
+    cn(
+      "transition-opacity",
+      isBusy && respondingDecision !== decision ? "opacity-60" : undefined,
+      respondingDecision === decision ? "ring-2 ring-ring/50 ring-offset-1 ring-offset-background" : undefined,
+    );
+
   return (
     <>
       <Button
         size="sm"
         variant="ghost"
-        disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "cancel")}
+        className={buttonClassName("cancel")}
+        aria-disabled={isBusy}
+        onClick={() => {
+          if (isBusy) return;
+          void onRespondToApproval(requestId, "cancel");
+        }}
       >
-        Cancel turn
+        {renderButtonLabel("cancel", "Cancel turn", "Cancelling...")}
       </Button>
       <Button
         size="sm"
         variant="destructive-outline"
-        disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "decline")}
+        className={buttonClassName("decline")}
+        aria-disabled={isBusy}
+        onClick={() => {
+          if (isBusy) return;
+          void onRespondToApproval(requestId, "decline");
+        }}
       >
-        Decline
+        {renderButtonLabel("decline", "Decline", "Declining...")}
       </Button>
       <Button
         size="sm"
         variant="outline"
-        disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "acceptForSession")}
+        className={buttonClassName("acceptForSession")}
+        aria-disabled={isBusy}
+        onClick={() => {
+          if (isBusy) return;
+          void onRespondToApproval(requestId, "acceptForSession");
+        }}
       >
-        Always allow this session
+        {renderButtonLabel("acceptForSession", "Always allow this session", "Allowing...")}
       </Button>
       <Button
         size="sm"
         variant="default"
-        disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "accept")}
+        className={buttonClassName("accept")}
+        aria-disabled={isBusy}
+        onClick={() => {
+          if (isBusy) return;
+          void onRespondToApproval(requestId, "accept");
+        }}
       >
-        Approve once
+        {renderButtonLabel("accept", "Approve once", "Approving...")}
       </Button>
     </>
   );
@@ -5586,7 +5596,7 @@ const MessagesTimeline = memo(function MessagesTimeline({
               {row.showCompletionDivider && (
                 <div className="my-3 flex items-center gap-3">
                   <span className="h-px flex-1 bg-border" />
-                  <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/80">
+                  <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-foreground/78">
                     {completionSummary ? `Response • ${completionSummary}` : "Response"}
                   </span>
                   <span className="h-px flex-1 bg-border" />
@@ -5610,7 +5620,7 @@ const MessagesTimeline = memo(function MessagesTimeline({
                   return (
                     <div className="mt-2 rounded-lg border border-border/80 bg-card/45 p-2.5">
                       <div className="mb-1.5 flex items-center justify-between gap-2">
-                        <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/65">
+                        <p className="text-[10px] uppercase tracking-[0.12em] text-foreground/72">
                           <span>Changed files ({changedFileCountLabel})</span>
                           {hasNonZeroStat(summaryStat) && (
                             <>
@@ -5654,7 +5664,7 @@ const MessagesTimeline = memo(function MessagesTimeline({
                     </div>
                   );
                 })()}
-                <p className="mt-1.5 text-[10px] text-muted-foreground/30">
+                <p className="mt-2 text-[10px] font-medium text-foreground">
                   {formatMessageMeta(
                     row.message.createdAt,
                     row.message.streaming
@@ -5747,12 +5757,15 @@ function getCustomModelsForProvider(
   settings: {
     customCodexModels: readonly string[];
     customGeminiModels: readonly string[];
+    customGitHubCopilotModels: readonly string[];
   },
   provider: ProviderKind,
 ): readonly string[] {
   switch (provider) {
     case "gemini":
       return settings.customGeminiModels;
+    case "githubCopilot":
+      return settings.customGitHubCopilotModels;
     case "codex":
     default:
       return settings.customCodexModels;
@@ -5762,9 +5775,31 @@ function getCustomModelsForProvider(
 const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   codex: OpenAI,
   claudeAgent: ClaudeAI,
+  githubCopilot: GitHubCopilot,
   gemini: Gemini,
   cursor: CursorIcon,
 };
+
+function getProviderDisplayName(provider: ProviderKind): string {
+  switch (provider) {
+    case "codex":
+      return "Codex";
+    case "claudeAgent":
+      return "Claude Code";
+    case "githubCopilot":
+      return "GitHub Copilot";
+    case "gemini":
+      return "Gemini";
+  }
+}
+
+function formatCopilotBillingMultiplier(multiplier: number): string {
+  return `${multiplier.toFixed(multiplier % 1 === 0 ? 0 : 1)}x`;
+}
+
+function formatCopilotQuotaPercentage(value: number): string {
+  return `${Math.max(0, Math.min(100, value)).toFixed(0)}`;
+}
 
 function resolveModelForProviderPicker(
   provider: ProviderKind,
@@ -5804,6 +5839,13 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   model: ModelSlug;
   lockedProvider: ProviderKind | null;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
+  copilotModels: ReadonlyArray<CopilotProviderModelMetadata>;
+  copilotQuotaSummary: {
+    title: string;
+    detail: string;
+    remainingPercent: number;
+    progressTone: "default" | "warning" | "danger";
+  } | null;
   serviceTierSetting: AppServiceTier;
   disabled?: boolean;
   onProviderModelChange: (provider: ProviderKind, model: ModelSlug) => void;
@@ -5815,6 +5857,12 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   );
   const selectedModelLabel =
     selectedProviderOptions.find((option) => option.slug === props.model)?.name ?? props.model;
+  const copilotModelBySlug = useMemo(
+    () => new Map(props.copilotModels.map((model) => [model.slug, model])),
+    [props.copilotModels],
+  );
+  const selectedCopilotModel =
+    props.provider === "githubCopilot" ? (copilotModelBySlug.get(props.model) ?? null) : null;
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[props.provider];
 
   return (
@@ -5844,6 +5892,11 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             <ZapIcon className="size-3.5 shrink-0 text-amber-500" />
           ) : null}
           <span className="truncate">{selectedModelLabel}</span>
+          {selectedCopilotModel?.billingMultiplier != null ? (
+            <span className="shrink-0 rounded-full border border-border/70 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/80">
+              {formatCopilotBillingMultiplier(selectedCopilotModel.billingMultiplier)}
+            </span>
+          ) : null}
           <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
         </span>
       </MenuTrigger>
@@ -5862,6 +5915,46 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                 {option.label}
               </MenuSubTrigger>
               <MenuSubPopup className="[--available-height:min(24rem,70vh)]">
+                {option.value === "githubCopilot" && props.copilotQuotaSummary ? (
+                  <div className="border-b border-border/60 px-3 py-2">
+                    <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
+                      Usage remaining
+                    </p>
+                    <p className="mt-1 text-xs font-medium text-foreground/90">
+                      {props.copilotQuotaSummary.title}
+                    </p>
+                    <div className="mt-0.5 flex items-baseline justify-between gap-3">
+                      <p className="text-[11px] text-muted-foreground/80">
+                        {props.copilotQuotaSummary.detail}
+                      </p>
+                      <span className="shrink-0 text-[10px] font-medium tabular-nums uppercase tracking-[0.08em] text-muted-foreground/70">
+                        {formatCopilotQuotaPercentage(props.copilotQuotaSummary.remainingPercent)}%
+                      </span>
+                    </div>
+                    <div
+                      role="progressbar"
+                      aria-label={`${props.copilotQuotaSummary.title} quota remaining`}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={Math.round(props.copilotQuotaSummary.remainingPercent)}
+                      className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-black/10 dark:bg-white/15"
+                    >
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-[width,background-color] duration-200",
+                          props.copilotQuotaSummary.progressTone === "danger"
+                            ? "bg-red-500 dark:bg-red-400"
+                            : props.copilotQuotaSummary.progressTone === "warning"
+                              ? "bg-amber-500 dark:bg-amber-400"
+                              : "bg-black dark:bg-white",
+                        )}
+                        style={{
+                          width: `${Math.max(0, Math.min(100, props.copilotQuotaSummary.remainingPercent))}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
                 <MenuGroup>
                   <MenuRadioGroup
                     value={props.provider === option.value ? props.model : ""}
@@ -5884,19 +5977,35 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                     }}
                   >
                     {getModelOptionsForProvider(props.modelOptionsByProvider, option.value).map(
-                      (modelOption) => (
-                        <MenuRadioItem
-                          key={`${option.value}:${modelOption.slug}`}
-                          value={modelOption.slug}
-                          onClick={() => setIsMenuOpen(false)}
-                        >
-                          {option.value === "codex" &&
-                          shouldShowFastTierIcon(modelOption.slug, props.serviceTierSetting) ? (
-                            <ZapIcon className="size-3.5 shrink-0 text-amber-500" />
-                          ) : null}
-                          {modelOption.name}
-                        </MenuRadioItem>
-                      ),
+                      (modelOption) => {
+                        const copilotModelMetadata =
+                          option.value === "githubCopilot"
+                            ? (copilotModelBySlug.get(modelOption.slug) ?? null)
+                            : null;
+
+                        return (
+                          <MenuRadioItem
+                            key={`${option.value}:${modelOption.slug}`}
+                            value={modelOption.slug}
+                            onClick={() => setIsMenuOpen(false)}
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              {option.value === "codex" &&
+                              shouldShowFastTierIcon(modelOption.slug, props.serviceTierSetting) ? (
+                                <ZapIcon className="size-3.5 shrink-0 text-amber-500" />
+                              ) : null}
+                              <span className="truncate">{modelOption.name}</span>
+                              {copilotModelMetadata?.billingMultiplier != null ? (
+                                <span className="ms-auto shrink-0 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/80">
+                                  {formatCopilotBillingMultiplier(
+                                    copilotModelMetadata.billingMultiplier,
+                                  )}
+                                </span>
+                              ) : null}
+                            </span>
+                          </MenuRadioItem>
+                        );
+                      },
                     )}
                   </MenuRadioGroup>
                 </MenuGroup>

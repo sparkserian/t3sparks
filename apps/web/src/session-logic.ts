@@ -19,6 +19,7 @@ export const PROVIDER_OPTIONS: Array<{
 }> = [
   { value: "codex", label: "Codex", available: true },
   { value: "claudeAgent", label: "Claude Code", available: true },
+  { value: "githubCopilot", label: "GitHub Copilot", available: true },
   { value: "gemini", label: "Gemini", available: false },
   { value: "cursor", label: "Cursor", available: false },
 ];
@@ -200,7 +201,8 @@ export function derivePendingApprovals(
     if (
       activity.kind === "provider.approval.respond.failed" &&
       requestId &&
-      detail?.includes("Unknown pending permission request")
+      (detail?.includes("Unknown pending permission request") ||
+        detail?.includes("Unknown pending approval request"))
     ) {
       openByRequestId.delete(requestId);
       continue;

@@ -60,10 +60,11 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 
 describe("ProviderCommandReactor", () => {
   let runtime: ManagedRuntime.ManagedRuntime<
     OrchestrationEngineService | ProviderCommandReactor,
-    unknown
+  unknown
   > | null = null;
   let scope: Scope.Closeable | null = null;
   const createdStateDirs = new Set<string>();
+  const createdWorkspaceDirs = new Set<string>();
 
   afterEach(async () => {
     if (scope) {
@@ -78,12 +79,26 @@ describe("ProviderCommandReactor", () => {
       fs.rmSync(stateDir, { recursive: true, force: true });
     }
     createdStateDirs.clear();
+    for (const workspaceDir of createdWorkspaceDirs) {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+    createdWorkspaceDirs.clear();
   });
 
-  async function createHarness(input?: { readonly stateDir?: string }) {
+  async function createHarness(input?: {
+    readonly stateDir?: string;
+    readonly workspaceRoot?: string;
+    readonly createWorkspaceRoot?: boolean;
+  }) {
     const now = new Date().toISOString();
     const stateDir = input?.stateDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "t3sparks-reactor-"));
+    const workspaceRoot =
+      input?.workspaceRoot ?? fs.mkdtempSync(path.join(os.tmpdir(), "t3sparks-workspace-"));
     createdStateDirs.add(stateDir);
+    if (input?.workspaceRoot === undefined || input.createWorkspaceRoot !== false) {
+      fs.mkdirSync(workspaceRoot, { recursive: true });
+      createdWorkspaceDirs.add(workspaceRoot);
+    }
     const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
     let nextSessionIndex = 1;
     const runtimeSessions: Array<ProviderSession> = [];
@@ -221,7 +236,7 @@ describe("ProviderCommandReactor", () => {
         commandId: CommandId.makeUnsafe("cmd-project-create"),
         projectId: asProjectId("project-1"),
         title: "Provider Project",
-        workspaceRoot: "/tmp/provider-project",
+        workspaceRoot,
         defaultModel: "gpt-5-codex",
         createdAt: now,
       }),
@@ -281,7 +296,7 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
     expect(harness.startSession.mock.calls[0]?.[0]).toEqual(ThreadId.makeUnsafe("thread-1"));
     expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
-      cwd: "/tmp/provider-project",
+      cwd: expect.any(String),
       model: "gpt-5-codex",
       runtimeMode: "approval-required",
     });
@@ -290,6 +305,84 @@ describe("ProviderCommandReactor", () => {
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+  });
+
+  it("uses the turn-start runtime mode when the persisted thread mode is stale", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-runtime-override"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-runtime-override"),
+          role: "user",
+          text: "hello runtime override",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "full-access",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+      runtimeMode: "full-access",
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(thread?.runtimeMode).toBe("approval-required");
+    expect(thread?.session?.runtimeMode).toBe("full-access");
+  });
+
+  it("surfaces stale workspace roots before starting the provider session", async () => {
+    const missingWorkspaceRoot = path.join(os.tmpdir(), `t3sparks-missing-${crypto.randomUUID()}`);
+    const harness = await createHarness({
+      workspaceRoot: missingWorkspaceRoot,
+      createWorkspaceRoot: false,
+    });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-stale-workspace"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-stale-workspace"),
+          role: "user",
+          text: "hello from a moved repo",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+      return thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed") ?? false;
+    });
+
+    expect(harness.startSession).not.toHaveBeenCalled();
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    const failureActivity = thread?.activities.find(
+      (activity) => activity.kind === "provider.turn.start.failed",
+    );
+    expect(failureActivity).toBeDefined();
+    expect(failureActivity?.payload).toMatchObject({
+      detail: expect.stringContaining(missingWorkspaceRoot),
+    });
   });
 
   it("forwards codex model options through session start and turn send", async () => {

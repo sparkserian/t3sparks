@@ -9,6 +9,7 @@ const MODEL_OPTIONS_BY_PROVIDER = {
   codex: [{ slug: "gpt-5.4", name: "GPT-5.4" }],
   claudeAgent: [{ slug: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" }],
   gemini: [{ slug: "gemini-2.5-pro", name: "Gemini 2.5 Pro" }],
+  githubCopilot: [{ slug: "copilot:claude-opus-4.6", name: "Claude Opus 4.6" }],
 } satisfies Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
 
 describe("normalizeActiveComposerProvider", () => {
@@ -19,6 +20,7 @@ describe("normalizeActiveComposerProvider", () => {
   it("keeps supported providers and remaps gemini to codex", () => {
     expect(normalizeActiveComposerProvider("codex")).toBe("codex");
     expect(normalizeActiveComposerProvider("claudeAgent")).toBe("claudeAgent");
+    expect(normalizeActiveComposerProvider("githubCopilot")).toBe("githubCopilot");
     expect(normalizeActiveComposerProvider("gemini")).toBe("codex");
   });
 });

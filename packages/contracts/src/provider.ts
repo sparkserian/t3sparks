@@ -65,10 +65,15 @@ const GeminiProviderStartOptions = Schema.Struct({
   binaryPath: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 
+const GitHubCopilotProviderStartOptions = Schema.Struct({
+  binaryPath: Schema.optional(TrimmedNonEmptyStringSchema),
+});
+
 const ProviderStartOptions = Schema.Struct({
   codex: Schema.optional(CodexProviderStartOptions),
   claudeAgent: Schema.optional(ClaudeProviderStartOptions),
   gemini: Schema.optional(GeminiProviderStartOptions),
+  githubCopilot: Schema.optional(GitHubCopilotProviderStartOptions),
 });
 
 export const ProviderSessionStartInput = Schema.Struct({

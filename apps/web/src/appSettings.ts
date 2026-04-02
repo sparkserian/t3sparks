@@ -43,6 +43,7 @@ const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>
   codex: new Set(getModelOptions("codex").map((option) => option.slug)),
   claudeAgent: new Set(getModelOptions("claudeAgent").map((option) => option.slug)),
   gemini: new Set(getModelOptions("gemini").map((option) => option.slug)),
+  githubCopilot: new Set(getModelOptions("githubCopilot").map((option) => option.slug)),
 };
 
 const AppSettingsSchema = Schema.Struct({
@@ -66,6 +67,9 @@ const AppSettingsSchema = Schema.Struct({
   customGeminiModels: Schema.Array(Schema.String).pipe(
     Schema.withConstructorDefault(() => Option.some([])),
   ),
+  customGitHubCopilotModels: Schema.Array(Schema.String).pipe(
+    Schema.withConstructorDefault(() => Option.some([])),
+  ),
   customInstructions: Schema.Array(CustomInstruction).pipe(
     Schema.withConstructorDefault(() => Option.some([])),
   ),
@@ -85,6 +89,8 @@ export interface AppModelOption {
   name: string;
   isCustom: boolean;
 }
+
+type AdditionalModelOption = Pick<AppModelOption, "slug" | "name">;
 
 export function resolveAppServiceTier(serviceTier: AppServiceTier): ProviderServiceTier | null {
   return serviceTier === "auto" ? null : serviceTier;
@@ -142,6 +148,10 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
     ...settings,
     customCodexModels: normalizeCustomModelSlugs(settings.customCodexModels, "codex"),
     customGeminiModels: normalizeCustomModelSlugs(settings.customGeminiModels, "gemini"),
+    customGitHubCopilotModels: normalizeCustomModelSlugs(
+      settings.customGitHubCopilotModels,
+      "githubCopilot",
+    ),
     customInstructions: normalizeCustomInstructions(settings.customInstructions),
   };
 }
@@ -150,13 +160,34 @@ export function getAppModelOptions(
   provider: ProviderKind,
   customModels: readonly string[],
   selectedModel?: string | null,
+  additionalOptions: readonly AdditionalModelOption[] = [],
 ): AppModelOption[] {
-  const options: AppModelOption[] = getModelOptions(provider).map(({ slug, name }) => ({
-    slug,
-    name,
-    isCustom: false,
-  }));
-  const seen = new Set(options.map((option) => option.slug));
+  const options: AppModelOption[] = [];
+  const seen = new Set<string>();
+  const appendBuiltInOption = (option: AdditionalModelOption) => {
+    if (seen.has(option.slug)) {
+      return;
+    }
+    seen.add(option.slug);
+    options.push({
+      slug: option.slug,
+      name: option.name,
+      isCustom: false,
+    });
+  };
+
+  for (const option of getModelOptions(provider)) {
+    appendBuiltInOption(option);
+  }
+
+  for (const option of additionalOptions) {
+    const normalizedSlug = normalizeModelSlug(option.slug, provider);
+    const name = option.name.trim();
+    if (!normalizedSlug || !name) {
+      continue;
+    }
+    appendBuiltInOption({ slug: normalizedSlug, name });
+  }
 
   for (const slug of normalizeCustomModelSlugs(customModels, provider)) {
     if (seen.has(slug)) {
@@ -187,8 +218,9 @@ export function resolveAppModelSelection(
   provider: ProviderKind,
   customModels: readonly string[],
   selectedModel: string | null | undefined,
+  additionalOptions: readonly AdditionalModelOption[] = [],
 ): string {
-  const options = getAppModelOptions(provider, customModels, selectedModel);
+  const options = getAppModelOptions(provider, customModels, selectedModel, additionalOptions);
   const trimmedSelectedModel = selectedModel?.trim();
   if (trimmedSelectedModel) {
     const direct = options.find((option) => option.slug === trimmedSelectedModel);
@@ -220,9 +252,10 @@ export function getSlashModelOptions(
   customModels: readonly string[],
   query: string,
   selectedModel?: string | null,
+  additionalOptions: readonly AdditionalModelOption[] = [],
 ): AppModelOption[] {
   const normalizedQuery = query.trim().toLowerCase();
-  const options = getAppModelOptions(provider, customModels, selectedModel);
+  const options = getAppModelOptions(provider, customModels, selectedModel, additionalOptions);
   if (!normalizedQuery) {
     return options;
   }

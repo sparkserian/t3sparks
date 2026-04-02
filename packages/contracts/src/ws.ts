@@ -79,6 +79,7 @@ export const WS_METHODS = {
 
   // Server meta
   serverGetConfig: "server.getConfig",
+  serverCheckGitHubCopilotStatus: "server.checkGitHubCopilotStatus",
   serverUpsertKeybinding: "server.upsertKeybinding",
 } as const;
 
@@ -148,6 +149,7 @@ const WebSocketRequestBody = Schema.Union([
 
   // Server meta
   tagRequestBody(WS_METHODS.serverGetConfig, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.serverCheckGitHubCopilotStatus, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverUpsertKeybinding, KeybindingRule),
 ]);
 

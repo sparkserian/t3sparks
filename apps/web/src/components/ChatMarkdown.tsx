@@ -19,12 +19,14 @@ import {
 } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
 import { fnv1a32 } from "../lib/diffRendering";
 import { LRUCache } from "../lib/lruCache";
 import { useTheme } from "../hooks/useTheme";
 import { resolveCodeFenceLanguage } from "../codeFenceLanguage";
+import { paragraphizeStreamingMarkdown } from "./chatMarkdownStreaming";
 
 interface ChatMarkdownProps {
   text: string;
@@ -203,10 +205,77 @@ function SuspenseShikiCodeBlock({
 function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
+  const displayText = useMemo(
+    () => (isStreaming ? paragraphizeStreamingMarkdown(text) : text),
+    [isStreaming, text],
+  );
   const markdownComponents = useMemo<Components>(
     () => ({
       a({ node: _node, href, ...props }) {
-        return <a {...props} href={href} data-t3sparks-cwd={cwd} rel="noreferrer" />;
+        return (
+          <a
+            {...props}
+            href={href}
+            data-t3sparks-cwd={cwd}
+            rel="noreferrer"
+            className="font-medium text-foreground underline decoration-border underline-offset-4 transition-colors hover:text-foreground"
+          />
+        );
+      },
+      p({ node: _node, className, ...props }) {
+        return <p {...props} className={`max-w-[78ch] text-[15px] leading-7 text-foreground/92 ${className ?? ""}`.trim()} />;
+      },
+      ul({ node: _node, className, ...props }) {
+        return (
+          <ul
+            {...props}
+            className={`max-w-[78ch] list-disc space-y-2 pl-5 text-[15px] leading-7 text-foreground/90 ${className ?? ""}`.trim()}
+          />
+        );
+      },
+      ol({ node: _node, className, ...props }) {
+        return (
+          <ol
+            {...props}
+            className={`max-w-[78ch] list-decimal space-y-2 pl-5 text-[15px] leading-7 text-foreground/90 ${className ?? ""}`.trim()}
+          />
+        );
+      },
+      li({ node: _node, className, ...props }) {
+        return <li {...props} className={`pl-1 ${className ?? ""}`.trim()} />;
+      },
+      blockquote({ node: _node, className, ...props }) {
+        return (
+          <blockquote
+            {...props}
+            className={`max-w-[78ch] border-l-2 border-border/80 pl-4 text-foreground/78 italic ${className ?? ""}`.trim()}
+          />
+        );
+      },
+      h1({ node: _node, className, ...props }) {
+        return <h1 {...props} className={`max-w-[78ch] text-xl font-semibold tracking-tight text-foreground ${className ?? ""}`.trim()} />;
+      },
+      h2({ node: _node, className, ...props }) {
+        return <h2 {...props} className={`max-w-[78ch] text-lg font-semibold tracking-tight text-foreground ${className ?? ""}`.trim()} />;
+      },
+      h3({ node: _node, className, ...props }) {
+        return <h3 {...props} className={`max-w-[78ch] text-base font-semibold text-foreground ${className ?? ""}`.trim()} />;
+      },
+      h4({ node: _node, className, ...props }) {
+        return <h4 {...props} className={`max-w-[78ch] text-sm font-semibold uppercase tracking-[0.08em] text-foreground/88 ${className ?? ""}`.trim()} />;
+      },
+      br() {
+        // Many providers emit paragraph-ish single line breaks while streaming.
+        // Render them with visible separation instead of collapsing into one dense block.
+        return (
+          <>
+            <br />
+            <br />
+          </>
+        );
+      },
+      hr({ node: _node, className, ...props }) {
+        return <hr {...props} className={`border-border/80 ${className ?? ""}`.trim()} />;
       },
       pre({ node: _node, children, ...props }) {
         const codeBlock = extractCodeBlock(children);
@@ -232,9 +301,9 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
   );
 
   return (
-    <div className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-        {text}
+    <div className="chat-markdown w-full min-w-0 text-sm text-foreground/92 [&>*+*]:mt-4">
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={markdownComponents}>
+        {displayText}
       </ReactMarkdown>
     </div>
   );
