@@ -184,6 +184,25 @@ async function githubRequest(token, path, init = {}) {
   return response.json();
 }
 
+function resolveWorkflowDispatchInputs(version, platform) {
+  const inputs = {
+    version,
+    platform,
+  };
+
+  const supabaseUrl = process.env.VITE_SUPABASE_URL?.trim();
+  if (supabaseUrl) {
+    inputs.supabase_url = supabaseUrl;
+  }
+
+  const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY?.trim();
+  if (supabaseAnonKey) {
+    inputs.supabase_anon_key = supabaseAnonKey;
+  }
+
+  return inputs;
+}
+
 async function dispatchWorkflow(token, repository, version, platform) {
   await githubRequest(
     token,
@@ -193,10 +212,7 @@ async function dispatchWorkflow(token, repository, version, platform) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ref: "main",
-        inputs: {
-          version,
-          platform,
-        },
+        inputs: resolveWorkflowDispatchInputs(version, platform),
       }),
     },
   );
@@ -217,15 +233,12 @@ async function findTriggeredRun(token, repository, triggeredAfterUnixMs, expecte
       `/repos/${repository.slug}/actions/workflows/release.yml/runs?event=workflow_dispatch&branch=main&per_page=20`,
     );
     const runs = Array.isArray(data?.workflow_runs) ? data.workflow_runs : [];
-    const run = runs.find((candidate) => {
+    for (const candidate of runs) {
       if (typeof candidate?.created_at !== "string" || typeof candidate?.id !== "number") {
-        return false;
+        continue;
       }
       const createdAt = Date.parse(candidate.created_at);
-      return Number.isFinite(createdAt) && createdAt >= triggeredAfterUnixMs;
-    });
-    for (const candidate of runs) {
-      if (typeof candidate?.id !== "number") {
+      if (!Number.isFinite(createdAt) || createdAt < triggeredAfterUnixMs) {
         continue;
       }
       if (await runHasExpectedJob(token, repository, candidate.id, expectedJobName)) {
