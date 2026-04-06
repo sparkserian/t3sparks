@@ -33,6 +33,16 @@ export interface OrchestrationEngineShape {
   readonly getReadModel: () => Effect.Effect<OrchestrationReadModel, never, never>;
 
   /**
+   * Replace the current in-memory read model.
+   *
+   * Used by snapshot restore flows that reconstruct orchestration state
+   * without replaying historical domain events.
+   */
+  readonly replaceReadModel: (
+    nextReadModel: OrchestrationReadModel,
+  ) => Effect.Effect<void, never, never>;
+
+  /**
    * Replay persisted orchestration events from an exclusive sequence cursor.
    *
    * @param fromSequenceExclusive - Sequence cursor (exclusive).

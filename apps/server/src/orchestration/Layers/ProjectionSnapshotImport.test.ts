@@ -1,6 +1,8 @@
 import * as assert from "node:assert/strict";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
+import { CommandId } from "@t3sparks/contracts";
 
 import {
   CheckpointRef,
@@ -10,9 +12,16 @@ import {
   ThreadId,
   TurnId,
 } from "@t3sparks/contracts";
+import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
+import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
+import { ServerConfig } from "../../config.ts";
+import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
+import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
+import { decideOrchestrationCommand } from "../decider.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import { ProjectionSnapshotImportLive } from "./ProjectionSnapshotImport.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
+import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotImport } from "../Services/ProjectionSnapshotImport.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 
@@ -23,10 +32,28 @@ const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 
+function expectSingleEvent<T>(event: T | ReadonlyArray<T>): T {
+  if (Array.isArray(event)) {
+    throw new Error("Expected a single event.");
+  }
+  return event as T;
+}
+
+const orchestrationLayer = OrchestrationEngineLive.pipe(
+  Layer.provide(OrchestrationProjectionPipelineLive),
+  Layer.provide(OrchestrationEventStoreLive),
+  Layer.provide(OrchestrationCommandReceiptRepositoryLive),
+  Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(SqlitePersistenceMemory),
+);
+
 const projectionSnapshotImportLayer = it.layer(
-  Layer.mergeAll(ProjectionSnapshotImportLive, OrchestrationProjectionSnapshotQueryLive).pipe(
-    Layer.provideMerge(SqlitePersistenceMemory),
-  ),
+  Layer.mergeAll(
+    orchestrationLayer,
+    OrchestrationProjectionSnapshotQueryLive,
+    ProjectionSnapshotImportLive.pipe(Layer.provide(orchestrationLayer)),
+  ).pipe(Layer.provideMerge(SqlitePersistenceMemory)),
 );
 
 projectionSnapshotImportLayer("ProjectionSnapshotImport", (it) => {
@@ -156,6 +183,75 @@ projectionSnapshotImportLayer("ProjectionSnapshotImport", (it) => {
       assert.equal(snapshot.threads[0]?.checkpoints.length, 1);
       assert.equal(snapshot.threads[0]?.session?.providerName, "claudeAgent");
       assert.equal(snapshot.threads[0]?.latestTurn?.turnId, "turn-2");
+    }),
+  );
+
+  it.effect("hydrates the live orchestration engine so restored threads accept commands", () =>
+    Effect.gen(function* () {
+      const importer = yield* ProjectionSnapshotImport;
+      const engine = yield* OrchestrationEngineService;
+
+      yield* importer.replaceSnapshot({
+        snapshot: {
+          snapshotSequence: 42,
+          updatedAt: "2026-04-05T12:00:00.000Z",
+          projects: [
+            {
+              id: asProjectId("project-1"),
+              title: "Project One",
+              workspaceRoot: "C:/Users/example/project-one",
+              defaultModel: "gpt-5.4",
+              scripts: [],
+              createdAt: "2026-04-01T10:00:00.000Z",
+              updatedAt: "2026-04-05T11:55:00.000Z",
+              deletedAt: null,
+            },
+          ],
+          threads: [
+            {
+              id: asThreadId("thread-1"),
+              projectId: asProjectId("project-1"),
+              title: "Thread One",
+              model: "claude-opus-4.6",
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: "main",
+              worktreePath: null,
+              latestTurn: null,
+              createdAt: "2026-04-01T10:05:00.000Z",
+              updatedAt: "2026-04-05T11:56:20.000Z",
+              archivedAt: null,
+              deletedAt: null,
+              messages: [],
+              proposedPlans: [],
+              activities: [],
+              checkpoints: [],
+              session: null,
+            },
+          ],
+        },
+      });
+
+      const readModel = yield* engine.getReadModel();
+      const event = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.meta.update",
+          commandId: CommandId.makeUnsafe("command-1"),
+          threadId: asThreadId("thread-1"),
+          title: "Updated title",
+        },
+        readModel,
+      });
+
+      assert.equal(readModel.threads[0]?.id, "thread-1");
+      const singleEvent = expectSingleEvent(event);
+      assert.equal(singleEvent.type, "thread.meta-updated");
+      if (singleEvent.type !== "thread.meta-updated") {
+        throw new Error(`Expected thread.meta-updated, received ${singleEvent.type}.`);
+      }
+      const payload = singleEvent.payload as { threadId: string; title?: string };
+      assert.equal(payload.threadId, "thread-1");
+      assert.equal(payload.title, "Updated title");
     }),
   );
 });

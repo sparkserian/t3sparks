@@ -98,7 +98,7 @@ export function makeServerRuntimeServicesLayer() {
   const runtimeServicesLayer = Layer.mergeAll(
     orchestrationLayer,
     OrchestrationProjectionSnapshotQueryLive,
-    ProjectionSnapshotImportLive,
+    ProjectionSnapshotImportLive.pipe(Layer.provide(orchestrationLayer)),
     CheckpointStoreLive,
     checkpointDiffQueryLayer,
   );

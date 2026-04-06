@@ -219,6 +219,11 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const getReadModel: OrchestrationEngineShape["getReadModel"] = () =>
     Effect.sync((): OrchestrationReadModel => readModel);
 
+  const replaceReadModel: OrchestrationEngineShape["replaceReadModel"] = (nextReadModel) =>
+    Effect.sync(() => {
+      readModel = nextReadModel;
+    });
+
   const readEvents: OrchestrationEngineShape["readEvents"] = (fromSequenceExclusive) =>
     eventStore.readFromSequence(fromSequenceExclusive);
 
@@ -234,6 +239,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
   return {
     getReadModel,
+    replaceReadModel,
     readEvents,
     dispatch,
     streamDomainEvents,

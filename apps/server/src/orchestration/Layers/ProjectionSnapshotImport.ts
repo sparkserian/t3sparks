@@ -14,6 +14,7 @@ import {
   ProjectionSnapshotImport,
   type ProjectionSnapshotImportShape,
 } from "../Services/ProjectionSnapshotImport.ts";
+import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 
 interface ImportTurnRow {
   readonly threadId: string;
@@ -120,6 +121,7 @@ function applyProjectBindings(
 
 const makeProjectionSnapshotImport = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const orchestrationEngine = yield* OrchestrationEngineService;
 
   const clearImportedState = Effect.gen(function* () {
     yield* sql`DELETE FROM checkpoint_diff_blobs`;
@@ -139,232 +141,238 @@ const makeProjectionSnapshotImport = Effect.gen(function* () {
   });
 
   const replaceSnapshot: ProjectionSnapshotImportShape["replaceSnapshot"] = (input) =>
-    sql.withTransaction(
-      Effect.gen(function* () {
-        const snapshot = applyProjectBindings(input);
+    Effect.gen(function* () {
+      const snapshot = applyProjectBindings(input);
 
-        yield* clearImportedState;
+      const result = yield* sql.withTransaction(
+        Effect.gen(function* () {
 
-        if (snapshot.snapshotSequence > 0) {
-          yield* sql`
-            INSERT INTO sqlite_sequence (name, seq)
-            VALUES ('orchestration_events', ${snapshot.snapshotSequence})
-          `;
-        }
+          yield* clearImportedState;
 
-        for (const project of snapshot.projects) {
-          yield* sql`
-            INSERT INTO projection_projects (
-              project_id,
-              title,
-              workspace_root,
-              default_model,
-              scripts_json,
-              created_at,
-              updated_at,
-              deleted_at
-            )
-            VALUES (
-              ${project.id},
-              ${project.title},
-              ${project.workspaceRoot},
-              ${project.defaultModel},
-              ${JSON.stringify(project.scripts)},
-              ${project.createdAt},
-              ${project.updatedAt},
-              ${project.deletedAt}
-            )
-          `;
-        }
-
-        for (const thread of snapshot.threads) {
-          yield* sql`
-            INSERT INTO projection_threads (
-              thread_id,
-              project_id,
-              title,
-              model,
-              runtime_mode,
-              interaction_mode,
-              branch,
-              worktree_path,
-              latest_turn_id,
-              created_at,
-              updated_at,
-              archived_at,
-              deleted_at
-            )
-            VALUES (
-              ${thread.id},
-              ${thread.projectId},
-              ${thread.title},
-              ${thread.model},
-              ${thread.runtimeMode},
-              ${thread.interactionMode},
-              ${thread.branch},
-              ${thread.worktreePath},
-              ${thread.latestTurn?.turnId ?? null},
-              ${thread.createdAt},
-              ${thread.updatedAt},
-              ${thread.archivedAt},
-              ${thread.deletedAt}
-            )
-          `;
-
-          for (const message of thread.messages) {
+          if (snapshot.snapshotSequence > 0) {
             yield* sql`
-              INSERT INTO projection_thread_messages (
-                message_id,
-                thread_id,
-                turn_id,
-                role,
-                text,
-                attachments_json,
-                is_streaming,
+              INSERT INTO sqlite_sequence (name, seq)
+              VALUES ('orchestration_events', ${snapshot.snapshotSequence})
+            `;
+          }
+
+          for (const project of snapshot.projects) {
+            yield* sql`
+              INSERT INTO projection_projects (
+                project_id,
+                title,
+                workspace_root,
+                default_model,
+                scripts_json,
                 created_at,
-                updated_at
+                updated_at,
+                deleted_at
               )
               VALUES (
-                ${message.id},
-                ${thread.id},
-                ${message.turnId},
-                ${message.role},
-                ${message.text},
-                ${message.attachments ? JSON.stringify(message.attachments) : null},
-                ${message.streaming ? 1 : 0},
-                ${message.createdAt},
-                ${message.updatedAt}
+                ${project.id},
+                ${project.title},
+                ${project.workspaceRoot},
+                ${project.defaultModel},
+                ${JSON.stringify(project.scripts)},
+                ${project.createdAt},
+                ${project.updatedAt},
+                ${project.deletedAt}
               )
             `;
           }
 
-          for (const activity of thread.activities) {
+          for (const thread of snapshot.threads) {
             yield* sql`
-              INSERT INTO projection_thread_activities (
-                activity_id,
+              INSERT INTO projection_threads (
                 thread_id,
-                turn_id,
-                tone,
-                kind,
-                summary,
-                payload_json,
-                sequence,
-                created_at
-              )
-              VALUES (
-                ${activity.id},
-                ${thread.id},
-                ${activity.turnId},
-                ${activity.tone},
-                ${activity.kind},
-                ${activity.summary},
-                ${JSON.stringify(activity.payload)},
-                ${activity.sequence ?? null},
-                ${activity.createdAt}
-              )
-            `;
-          }
-
-          for (const plan of thread.proposedPlans) {
-            yield* sql`
-              INSERT INTO projection_thread_proposed_plans (
-                plan_id,
-                thread_id,
-                turn_id,
-                plan_markdown,
-                created_at,
-                updated_at
-              )
-              VALUES (
-                ${plan.id},
-                ${thread.id},
-                ${plan.turnId},
-                ${plan.planMarkdown},
-                ${plan.createdAt},
-                ${plan.updatedAt}
-              )
-            `;
-          }
-
-          if (thread.session) {
-            yield* sql`
-              INSERT INTO projection_thread_sessions (
-                thread_id,
-                status,
-                provider_name,
+                project_id,
+                title,
+                model,
                 runtime_mode,
-                active_turn_id,
-                last_error,
-                updated_at
+                interaction_mode,
+                branch,
+                worktree_path,
+                latest_turn_id,
+                created_at,
+                updated_at,
+                archived_at,
+                deleted_at
               )
               VALUES (
                 ${thread.id},
-                ${thread.session.status},
-                ${thread.session.providerName},
-                ${thread.session.runtimeMode},
-                ${thread.session.activeTurnId},
-                ${thread.session.lastError},
-                ${thread.session.updatedAt}
+                ${thread.projectId},
+                ${thread.title},
+                ${thread.model},
+                ${thread.runtimeMode},
+                ${thread.interactionMode},
+                ${thread.branch},
+                ${thread.worktreePath},
+                ${thread.latestTurn?.turnId ?? null},
+                ${thread.createdAt},
+                ${thread.updatedAt},
+                ${thread.archivedAt},
+                ${thread.deletedAt}
               )
             `;
+
+            for (const message of thread.messages) {
+              yield* sql`
+                INSERT INTO projection_thread_messages (
+                  message_id,
+                  thread_id,
+                  turn_id,
+                  role,
+                  text,
+                  attachments_json,
+                  is_streaming,
+                  created_at,
+                  updated_at
+                )
+                VALUES (
+                  ${message.id},
+                  ${thread.id},
+                  ${message.turnId},
+                  ${message.role},
+                  ${message.text},
+                  ${message.attachments ? JSON.stringify(message.attachments) : null},
+                  ${message.streaming ? 1 : 0},
+                  ${message.createdAt},
+                  ${message.updatedAt}
+                )
+              `;
+            }
+
+            for (const activity of thread.activities) {
+              yield* sql`
+                INSERT INTO projection_thread_activities (
+                  activity_id,
+                  thread_id,
+                  turn_id,
+                  tone,
+                  kind,
+                  summary,
+                  payload_json,
+                  sequence,
+                  created_at
+                )
+                VALUES (
+                  ${activity.id},
+                  ${thread.id},
+                  ${activity.turnId},
+                  ${activity.tone},
+                  ${activity.kind},
+                  ${activity.summary},
+                  ${JSON.stringify(activity.payload)},
+                  ${activity.sequence ?? null},
+                  ${activity.createdAt}
+                )
+              `;
+            }
+
+            for (const plan of thread.proposedPlans) {
+              yield* sql`
+                INSERT INTO projection_thread_proposed_plans (
+                  plan_id,
+                  thread_id,
+                  turn_id,
+                  plan_markdown,
+                  created_at,
+                  updated_at
+                )
+                VALUES (
+                  ${plan.id},
+                  ${thread.id},
+                  ${plan.turnId},
+                  ${plan.planMarkdown},
+                  ${plan.createdAt},
+                  ${plan.updatedAt}
+                )
+              `;
+            }
+
+            if (thread.session) {
+              yield* sql`
+                INSERT INTO projection_thread_sessions (
+                  thread_id,
+                  status,
+                  provider_name,
+                  runtime_mode,
+                  active_turn_id,
+                  last_error,
+                  updated_at
+                )
+                VALUES (
+                  ${thread.id},
+                  ${thread.session.status},
+                  ${thread.session.providerName},
+                  ${thread.session.runtimeMode},
+                  ${thread.session.activeTurnId},
+                  ${thread.session.lastError},
+                  ${thread.session.updatedAt}
+                )
+              `;
+            }
+
+            for (const turn of buildTurnRows(thread)) {
+              yield* sql`
+                INSERT INTO projection_turns (
+                  thread_id,
+                  turn_id,
+                  pending_message_id,
+                  assistant_message_id,
+                  state,
+                  requested_at,
+                  started_at,
+                  completed_at,
+                  checkpoint_turn_count,
+                  checkpoint_ref,
+                  checkpoint_status,
+                  checkpoint_files_json
+                )
+                VALUES (
+                  ${turn.threadId},
+                  ${turn.turnId},
+                  ${turn.pendingMessageId},
+                  ${turn.assistantMessageId},
+                  ${turn.state},
+                  ${turn.requestedAt},
+                  ${turn.startedAt},
+                  ${turn.completedAt},
+                  ${turn.checkpointTurnCount},
+                  ${turn.checkpointRef},
+                  ${turn.checkpointStatus},
+                  ${turn.checkpointFilesJson}
+                )
+              `;
+            }
           }
 
-          for (const turn of buildTurnRows(thread)) {
+          for (const projector of Object.values(ORCHESTRATION_PROJECTOR_NAMES)) {
             yield* sql`
-              INSERT INTO projection_turns (
-                thread_id,
-                turn_id,
-                pending_message_id,
-                assistant_message_id,
-                state,
-                requested_at,
-                started_at,
-                completed_at,
-                checkpoint_turn_count,
-                checkpoint_ref,
-                checkpoint_status,
-                checkpoint_files_json
+              INSERT INTO projection_state (
+                projector,
+                last_applied_sequence,
+                updated_at
               )
               VALUES (
-                ${turn.threadId},
-                ${turn.turnId},
-                ${turn.pendingMessageId},
-                ${turn.assistantMessageId},
-                ${turn.state},
-                ${turn.requestedAt},
-                ${turn.startedAt},
-                ${turn.completedAt},
-                ${turn.checkpointTurnCount},
-                ${turn.checkpointRef},
-                ${turn.checkpointStatus},
-                ${turn.checkpointFilesJson}
+                ${projector},
+                ${snapshot.snapshotSequence},
+                ${snapshot.updatedAt}
               )
             `;
           }
-        }
 
-        for (const projector of Object.values(ORCHESTRATION_PROJECTOR_NAMES)) {
-          yield* sql`
-            INSERT INTO projection_state (
-              projector,
-              last_applied_sequence,
-              updated_at
-            )
-            VALUES (
-              ${projector},
-              ${snapshot.snapshotSequence},
-              ${snapshot.updatedAt}
-            )
-          `;
-        }
+          return {
+            importedProjectCount: snapshot.projects.length,
+            importedThreadCount: snapshot.threads.length,
+            snapshotSequence: snapshot.snapshotSequence,
+          } satisfies ServerImportSnapshotResult;
+        }),
+      ).pipe(Effect.mapError(toPersistenceSqlError("ProjectionSnapshotImport.replaceSnapshot:query")));
 
-        return {
-          importedProjectCount: snapshot.projects.length,
-          importedThreadCount: snapshot.threads.length,
-          snapshotSequence: snapshot.snapshotSequence,
-        } satisfies ServerImportSnapshotResult;
-      }),
-    ).pipe(Effect.mapError(toPersistenceSqlError("ProjectionSnapshotImport.replaceSnapshot:query")));
+      yield* orchestrationEngine.replaceReadModel(snapshot);
+      return result;
+    });
 
   return {
     replaceSnapshot,
