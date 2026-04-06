@@ -155,7 +155,8 @@ jobs:
               echo "macOS signing enabled."
               args+=(--signed)
             else
-              echo "macOS signing disabled (missing one or more Apple signing secrets)."
+              echo "macOS signing required for release publishing, but one or more Apple signing secrets are missing." >&2
+              exit 1
             fi
           elif [[ "${{ matrix.platform }}" == "win" ]]; then
             if has_all \

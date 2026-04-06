@@ -6,6 +6,8 @@ import { defineConfig } from "vite";
 const port = Number(process.env.PORT ?? 5733);
 
 export default defineConfig({
+  // Keep the desktop/web build aligned with the repo-root `.env.local`.
+  envDir: "../..",
   plugins: [
     tanstackRouter(),
     react({
