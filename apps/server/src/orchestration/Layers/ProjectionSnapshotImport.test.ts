@@ -1,8 +1,8 @@
 import * as assert from "node:assert/strict";
-import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Ref, Stream } from "effect";
 import { CommandId } from "@t3sparks/contracts";
+import type { OrchestrationReadModel } from "@t3sparks/contracts";
 
 import {
   CheckpointRef,
@@ -12,16 +12,15 @@ import {
   ThreadId,
   TurnId,
 } from "@t3sparks/contracts";
-import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
-import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
-import { ServerConfig } from "../../config.ts";
-import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
-import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { decideOrchestrationCommand } from "../decider.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import { createEmptyReadModel } from "../projector.ts";
 import { ProjectionSnapshotImportLive } from "./ProjectionSnapshotImport.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
-import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import {
+  OrchestrationEngineService,
+  type OrchestrationEngineShape,
+} from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotImport } from "../Services/ProjectionSnapshotImport.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 
@@ -39,20 +38,27 @@ function expectSingleEvent<T>(event: T | ReadonlyArray<T>): T {
   return event as T;
 }
 
-const orchestrationLayer = OrchestrationEngineLive.pipe(
-  Layer.provide(OrchestrationProjectionPipelineLive),
-  Layer.provide(OrchestrationEventStoreLive),
-  Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-  Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
-  Layer.provideMerge(NodeServices.layer),
-  Layer.provideMerge(SqlitePersistenceMemory),
+const orchestrationEngineStubLayer = Layer.effect(
+  OrchestrationEngineService,
+  Effect.gen(function* () {
+    const readModelRef = yield* Ref.make<OrchestrationReadModel>(
+      createEmptyReadModel("2026-04-05T12:00:00.000Z"),
+    );
+    return {
+      getReadModel: () => Ref.get(readModelRef),
+      replaceReadModel: (nextReadModel) => Ref.set(readModelRef, nextReadModel),
+      readEvents: () => Stream.empty,
+      dispatch: () => Effect.die("dispatch should not be called in ProjectionSnapshotImport tests"),
+      streamDomainEvents: Stream.empty,
+    } satisfies OrchestrationEngineShape;
+  }),
 );
 
 const projectionSnapshotImportLayer = it.layer(
   Layer.mergeAll(
-    orchestrationLayer,
+    orchestrationEngineStubLayer,
     OrchestrationProjectionSnapshotQueryLive,
-    ProjectionSnapshotImportLive.pipe(Layer.provide(orchestrationLayer)),
+    ProjectionSnapshotImportLive.pipe(Layer.provide(orchestrationEngineStubLayer)),
   ).pipe(Layer.provideMerge(SqlitePersistenceMemory)),
 );
 
