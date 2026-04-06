@@ -6,7 +6,7 @@ type ThemeSnapshot = {
   systemDark: boolean;
 };
 
-const STORAGE_KEY = "t3sparks:theme";
+export const THEME_STORAGE_KEY = "t3sparks:theme";
 const MEDIA_QUERY = "(prefers-color-scheme: dark)";
 
 let listeners: Array<() => void> = [];
@@ -20,7 +20,7 @@ function getSystemDark(): boolean {
 }
 
 function getStored(): Theme {
-  const raw = localStorage.getItem(STORAGE_KEY);
+  const raw = localStorage.getItem(THEME_STORAGE_KEY);
   if (raw === "light" || raw === "dark" || raw === "system") return raw;
   return "system";
 }
@@ -69,7 +69,7 @@ function subscribe(listener: () => void): () => void {
 
   // Listen for storage changes from other tabs
   const handleStorage = (e: StorageEvent) => {
-    if (e.key === STORAGE_KEY) {
+    if (e.key === THEME_STORAGE_KEY) {
       applyTheme(getStored(), true);
       emitChange();
     }
@@ -91,7 +91,7 @@ export function useTheme() {
     theme === "system" ? (snapshot.systemDark ? "dark" : "light") : theme;
 
   const setTheme = useCallback((next: Theme) => {
-    localStorage.setItem(STORAGE_KEY, next);
+    localStorage.setItem(THEME_STORAGE_KEY, next);
     applyTheme(next, true);
     emitChange();
   }, []);

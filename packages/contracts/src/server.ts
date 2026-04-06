@@ -1,8 +1,8 @@
 import { Schema } from "effect";
-import { IsoDateTime, NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas";
+import { IsoDateTime, NonNegativeInt, ProjectId, TrimmedNonEmptyString } from "./baseSchemas";
 import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings";
 import { EditorId } from "./editor";
-import { ProviderKind } from "./orchestration";
+import { OrchestrationReadModel, ProviderKind } from "./orchestration";
 import { CODEX_REASONING_EFFORT_OPTIONS } from "./model";
 
 const KeybindingsMalformedConfigIssue = Schema.Struct({
@@ -82,6 +82,42 @@ export const ServerConfig = Schema.Struct({
   availableEditors: Schema.Array(EditorId),
 });
 export type ServerConfig = typeof ServerConfig.Type;
+
+export const ServerImportSnapshotProjectBinding = Schema.Struct({
+  projectId: ProjectId,
+  workspaceRoot: TrimmedNonEmptyString,
+});
+export type ServerImportSnapshotProjectBinding = typeof ServerImportSnapshotProjectBinding.Type;
+
+export const ServerImportSnapshotInput = Schema.Struct({
+  snapshot: OrchestrationReadModel,
+  projectBindings: Schema.optional(Schema.Array(ServerImportSnapshotProjectBinding)),
+});
+export type ServerImportSnapshotInput = typeof ServerImportSnapshotInput.Type;
+
+export const ServerImportSnapshotResult = Schema.Struct({
+  importedProjectCount: NonNegativeInt,
+  importedThreadCount: NonNegativeInt,
+  snapshotSequence: NonNegativeInt,
+});
+export type ServerImportSnapshotResult = typeof ServerImportSnapshotResult.Type;
+
+export const ServerCheckPathsInput = Schema.Struct({
+  paths: Schema.Array(TrimmedNonEmptyString),
+});
+export type ServerCheckPathsInput = typeof ServerCheckPathsInput.Type;
+
+export const ServerPathCheck = Schema.Struct({
+  path: TrimmedNonEmptyString,
+  exists: Schema.Boolean,
+  isDirectory: Schema.Boolean,
+});
+export type ServerPathCheck = typeof ServerPathCheck.Type;
+
+export const ServerCheckPathsResult = Schema.Struct({
+  paths: Schema.Array(ServerPathCheck),
+});
+export type ServerCheckPathsResult = typeof ServerCheckPathsResult.Type;
 
 export const ServerUpsertKeybindingInput = KeybindingRule;
 export type ServerUpsertKeybindingInput = typeof ServerUpsertKeybindingInput.Type;

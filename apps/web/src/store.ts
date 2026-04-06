@@ -22,7 +22,7 @@ export interface AppState {
   threadsHydrated: boolean;
 }
 
-const PERSISTED_STATE_KEY = "t3sparks:renderer-state:v8";
+export const PERSISTED_STATE_KEY = "t3sparks:renderer-state:v8";
 const LEGACY_PERSISTED_STATE_KEYS = [
   "t3sparks:renderer-state:v6",
   "t3sparks:renderer-state:v5",

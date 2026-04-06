@@ -882,7 +882,7 @@ describe("WebSocket Server", () => {
       ],
     };
     let statuses: ReadonlyArray<ServerProviderStatus> = [initialStatus];
-    const checkStatus = vi.fn((_provider: "githubCopilot") =>
+    const checkStatus = vi.fn((_provider: "codex" | "claudeAgent" | "gemini" | "githubCopilot") =>
       Effect.sync(() => {
         statuses = [recoveredStatus];
         return recoveredStatus;

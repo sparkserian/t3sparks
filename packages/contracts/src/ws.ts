@@ -37,6 +37,7 @@ import {
   ProjectWriteFileInput,
 } from "./project";
 import { OpenInEditorInput } from "./editor";
+import { ServerCheckPathsInput, ServerImportSnapshotInput } from "./server";
 
 // ── WebSocket RPC Method Names ───────────────────────────────────────
 
@@ -80,6 +81,8 @@ export const WS_METHODS = {
   // Server meta
   serverGetConfig: "server.getConfig",
   serverCheckGitHubCopilotStatus: "server.checkGitHubCopilotStatus",
+  serverImportSnapshot: "server.importSnapshot",
+  serverCheckPaths: "server.checkPaths",
   serverUpsertKeybinding: "server.upsertKeybinding",
 } as const;
 
@@ -150,6 +153,8 @@ const WebSocketRequestBody = Schema.Union([
   // Server meta
   tagRequestBody(WS_METHODS.serverGetConfig, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverCheckGitHubCopilotStatus, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.serverImportSnapshot, ServerImportSnapshotInput),
+  tagRequestBody(WS_METHODS.serverCheckPaths, ServerCheckPathsInput),
   tagRequestBody(WS_METHODS.serverUpsertKeybinding, KeybindingRule),
 ]);
 

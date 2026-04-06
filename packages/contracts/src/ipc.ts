@@ -26,6 +26,12 @@ import type {
 } from "./project";
 import type { ServerConfig, ServerProviderStatus } from "./server";
 import type {
+  ServerCheckPathsInput,
+  ServerCheckPathsResult,
+  ServerImportSnapshotInput,
+  ServerImportSnapshotResult,
+} from "./server";
+import type {
   TerminalClearInput,
   TerminalCloseInput,
   TerminalEvent,
@@ -153,6 +159,8 @@ export interface NativeApi {
   server: {
     getConfig: () => Promise<ServerConfig>;
     checkGitHubCopilotStatus: () => Promise<ServerProviderStatus>;
+    importSnapshot: (input: ServerImportSnapshotInput) => Promise<ServerImportSnapshotResult>;
+    checkPaths: (input: ServerCheckPathsInput) => Promise<ServerCheckPathsResult>;
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
   };
   orchestration: {

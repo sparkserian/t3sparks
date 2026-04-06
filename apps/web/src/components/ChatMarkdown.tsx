@@ -26,7 +26,7 @@ import { fnv1a32 } from "../lib/diffRendering";
 import { LRUCache } from "../lib/lruCache";
 import { useTheme } from "../hooks/useTheme";
 import { resolveCodeFenceLanguage } from "../codeFenceLanguage";
-import { paragraphizeStreamingMarkdown } from "./chatMarkdownStreaming";
+import { formatChatMarkdownDisplayText } from "./chatMarkdownDisplay";
 
 interface ChatMarkdownProps {
   text: string;
@@ -206,7 +206,7 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
   const displayText = useMemo(
-    () => (isStreaming ? paragraphizeStreamingMarkdown(text) : text),
+    () => formatChatMarkdownDisplayText(text, isStreaming),
     [isStreaming, text],
   );
   const markdownComponents = useMemo<Components>(

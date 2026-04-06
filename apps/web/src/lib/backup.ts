@@ -1,24 +1,32 @@
-/**
- * Backup & Restore utility for t3sparks threads and projects.
- *
- * Export: fetches the full server snapshot (all projects, threads with
- * messages, sessions, checkpoints) plus client-side localStorage state,
- * and saves it as a single JSON file.
- *
- * Restore: reads a backup file and dispatches commands to recreate any
- * missing projects and threads. Message history is included in the backup
- * for reference but full message-level replay requires a server-side
- * import endpoint (planned for v2).
- */
+import type { OrchestrationReadModel, ProjectId } from "@t3sparks/contracts";
 
-import type { OrchestrationReadModel } from "@t3sparks/contracts";
+import { APP_SETTINGS_STORAGE_KEY } from "../appSettings";
+import { COMPOSER_DRAFT_STORAGE_KEY } from "../composerDraftStore";
+import { THEME_STORAGE_KEY } from "../hooks/useTheme";
 import { ensureNativeApi } from "../nativeApi";
+import { PROJECT_NOTES_STORAGE_KEY } from "../projectNotes";
+import { PERSISTED_STATE_KEY } from "../store";
+import { TERMINAL_STATE_STORAGE_KEY } from "../terminalStateStore";
 
-const APP_SETTINGS_KEY = "t3sparks:app-settings:v1";
-const COMPOSER_DRAFTS_KEY = "t3sparks:composer-drafts:v1";
-const RENDERER_STATE_KEY = "t3sparks:renderer-state:v8";
+const LEGACY_RENDERER_STATE_KEY = "t3sparks:renderer-state:v8";
+
+type BackupLocalStorageState = {
+  appSettings: unknown | null;
+  composerDrafts: unknown | null;
+  rendererState: unknown | null;
+  projectNotes: unknown | null;
+  terminalState: unknown | null;
+  theme: unknown | null;
+};
 
 export interface T3SparksBackup {
+  version: 2;
+  exportedAt: string;
+  serverSnapshot: OrchestrationReadModel;
+  localStorage: BackupLocalStorageState;
+}
+
+interface LegacyT3SparksBackupV1 {
   version: 1;
   exportedAt: string;
   serverSnapshot: OrchestrationReadModel;
@@ -38,6 +46,14 @@ function safeParseLocalStorageItem(key: string): unknown | null {
   }
 }
 
+function readThemeStorageValue(): string | null {
+  try {
+    return window.localStorage.getItem(THEME_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
 function downloadJson(data: unknown, filename: string): void {
   const json = JSON.stringify(data, null, 2);
   const blob = new Blob([json], { type: "application/json" });
@@ -51,52 +67,85 @@ function downloadJson(data: unknown, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-/**
- * Create a full backup of all projects, threads, messages, and settings.
- * Triggers a JSON file download in the browser.
- */
-export async function createBackup(): Promise<void> {
+function normalizeBackup(parsed: unknown): T3SparksBackup {
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("Invalid backup file.");
+  }
+
+  const maybeVersion = "version" in parsed ? parsed.version : null;
+  if (maybeVersion === 2) {
+    const candidate = parsed as Partial<T3SparksBackup>;
+    if (!candidate.serverSnapshot || typeof candidate.serverSnapshot !== "object") {
+      throw new Error("Backup file is missing the server snapshot data.");
+    }
+    return {
+      version: 2,
+      exportedAt:
+        typeof candidate.exportedAt === "string" ? candidate.exportedAt : new Date().toISOString(),
+      serverSnapshot: candidate.serverSnapshot,
+      localStorage: {
+        appSettings: candidate.localStorage?.appSettings ?? null,
+        composerDrafts: candidate.localStorage?.composerDrafts ?? null,
+        rendererState: candidate.localStorage?.rendererState ?? null,
+        projectNotes: candidate.localStorage?.projectNotes ?? null,
+        terminalState: candidate.localStorage?.terminalState ?? null,
+        theme: candidate.localStorage?.theme ?? null,
+      },
+    };
+  }
+
+  if (maybeVersion === 1) {
+    const legacy = parsed as LegacyT3SparksBackupV1;
+    if (!legacy.serverSnapshot || typeof legacy.serverSnapshot !== "object") {
+      throw new Error("Backup file is missing the server snapshot data.");
+    }
+    return {
+      version: 2,
+      exportedAt: legacy.exportedAt,
+      serverSnapshot: legacy.serverSnapshot,
+      localStorage: {
+        appSettings: legacy.localStorage?.appSettings ?? null,
+        composerDrafts: legacy.localStorage?.composerDrafts ?? null,
+        rendererState: legacy.localStorage?.rendererState ?? null,
+        projectNotes: null,
+        terminalState: null,
+        theme: null,
+      },
+    };
+  }
+
+  throw new Error("Invalid backup file. Expected a t3sparks backup with version 1 or 2.");
+}
+
+export async function createBackupData(): Promise<T3SparksBackup> {
   const api = ensureNativeApi();
   const serverSnapshot = await api.orchestration.getSnapshot();
-
-  const backup: T3SparksBackup = {
-    version: 1,
+  return {
+    version: 2,
     exportedAt: new Date().toISOString(),
     serverSnapshot,
     localStorage: {
-      appSettings: safeParseLocalStorageItem(APP_SETTINGS_KEY),
-      composerDrafts: safeParseLocalStorageItem(COMPOSER_DRAFTS_KEY),
-      rendererState: safeParseLocalStorageItem(RENDERER_STATE_KEY),
+      appSettings: safeParseLocalStorageItem(APP_SETTINGS_STORAGE_KEY),
+      composerDrafts: safeParseLocalStorageItem(COMPOSER_DRAFT_STORAGE_KEY),
+      rendererState: safeParseLocalStorageItem(PERSISTED_STATE_KEY ?? LEGACY_RENDERER_STATE_KEY),
+      projectNotes: safeParseLocalStorageItem(PROJECT_NOTES_STORAGE_KEY),
+      terminalState: safeParseLocalStorageItem(TERMINAL_STATE_STORAGE_KEY),
+      theme: readThemeStorageValue(),
     },
   };
-
-  const dateStr = new Date().toISOString().slice(0, 10);
-  const projectCount = serverSnapshot.projects?.length ?? 0;
-  const threadCount = serverSnapshot.threads?.length ?? 0;
-  downloadJson(
-    backup,
-    `t3sparks-backup-${dateStr}-${projectCount}p-${threadCount}t.json`,
-  );
 }
 
-/**
- * Read a backup file and validate its structure.
- */
+export async function createBackup(): Promise<void> {
+  const backup = await createBackupData();
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const projectCount = backup.serverSnapshot.projects?.length ?? 0;
+  const threadCount = backup.serverSnapshot.threads?.length ?? 0;
+  downloadJson(backup, `t3sparks-backup-${dateStr}-${projectCount}p-${threadCount}t.json`);
+}
+
 export async function readBackupFile(file: File): Promise<T3SparksBackup> {
   const text = await file.text();
-  const parsed = JSON.parse(text);
-
-  if (!parsed || typeof parsed !== "object" || parsed.version !== 1) {
-    throw new Error(
-      "Invalid backup file. Expected a t3sparks backup with version 1.",
-    );
-  }
-
-  if (!parsed.serverSnapshot || typeof parsed.serverSnapshot !== "object") {
-    throw new Error("Backup file is missing the server snapshot data.");
-  }
-
-  return parsed as T3SparksBackup;
+  return normalizeBackup(JSON.parse(text));
 }
 
 export interface RestoreResult {
@@ -107,117 +156,57 @@ export interface RestoreResult {
   localStorageRestored: boolean;
 }
 
-/**
- * Restore projects and threads from a backup file.
- *
- * - Projects/threads that already exist (by ID) are skipped.
- * - localStorage state (settings, drafts, expanded projects) is restored.
- * - Message history is NOT replayed (messages are in the backup for
- *   reference; a full message restore requires server-side support).
- * - After restore, the page should be reloaded to rehydrate stores.
- */
-export async function restoreBackup(backup: T3SparksBackup): Promise<RestoreResult> {
+export interface RestoreBackupOptions {
+  readonly projectBindingsByProjectId?: Partial<Record<ProjectId, string>>;
+}
+
+export async function restoreBackup(
+  backup: T3SparksBackup,
+  options?: RestoreBackupOptions,
+): Promise<RestoreResult> {
   const api = ensureNativeApi();
-  const currentSnapshot = await api.orchestration.getSnapshot();
-
-  const existingProjectIds = new Set(
-    (currentSnapshot.projects ?? []).map((p: { id: string }) => p.id),
-  );
-  const existingThreadIds = new Set(
-    (currentSnapshot.threads ?? []).map((t: { id: string }) => t.id),
+  const projectBindings = Object.entries(options?.projectBindingsByProjectId ?? {}).flatMap(
+    ([projectId, workspaceRoot]) =>
+      typeof workspaceRoot === "string" && workspaceRoot.trim().length > 0
+        ? [{ projectId: projectId as ProjectId, workspaceRoot: workspaceRoot.trim() }]
+        : [],
   );
 
-  let projectsRestored = 0;
-  let projectsSkipped = 0;
-  let threadsRestored = 0;
-  let threadsSkipped = 0;
+  const importResult = await api.server.importSnapshot({
+    snapshot: backup.serverSnapshot,
+    ...(projectBindings.length > 0 ? { projectBindings } : {}),
+  });
 
-  // Restore projects
-  for (const project of backup.serverSnapshot.projects ?? []) {
-    if (existingProjectIds.has(project.id)) {
-      projectsSkipped++;
-      continue;
-    }
-    try {
-      await api.orchestration.dispatchCommand({
-        type: "project.create",
-        commandId: crypto.randomUUID(),
-        projectId: project.id,
-        title: project.title,
-        workspaceRoot: project.workspaceRoot,
-        defaultModel: project.defaultModel ?? undefined,
-        createdAt: project.createdAt,
-      } as any);
-      projectsRestored++;
-    } catch {
-      projectsSkipped++;
-    }
-  }
-
-  // Restore threads (structure only, not message history)
-  for (const thread of backup.serverSnapshot.threads ?? []) {
-    if (existingThreadIds.has(thread.id)) {
-      threadsSkipped++;
-      continue;
-    }
-    // Ensure the project exists
-    if (!existingProjectIds.has(thread.projectId) && projectsRestored === 0) {
-      threadsSkipped++;
-      continue;
-    }
-    try {
-      await api.orchestration.dispatchCommand({
-        type: "thread.create",
-        commandId: crypto.randomUUID(),
-        threadId: thread.id,
-        projectId: thread.projectId,
-        title: thread.title,
-        model: thread.model,
-        runtimeMode: thread.runtimeMode,
-        interactionMode: thread.interactionMode,
-        branch: thread.branch,
-        worktreePath: thread.worktreePath,
-        createdAt: thread.createdAt,
-      } as any);
-      threadsRestored++;
-    } catch {
-      threadsSkipped++;
-    }
-  }
-
-  // Restore localStorage state
   let localStorageRestored = false;
+  const storageWrites: Array<[string, unknown | null]> = [
+    [APP_SETTINGS_STORAGE_KEY, backup.localStorage.appSettings],
+    [COMPOSER_DRAFT_STORAGE_KEY, backup.localStorage.composerDrafts],
+    [PERSISTED_STATE_KEY, backup.localStorage.rendererState],
+    [PROJECT_NOTES_STORAGE_KEY, backup.localStorage.projectNotes],
+    [TERMINAL_STATE_STORAGE_KEY, backup.localStorage.terminalState],
+  ];
+
   try {
-    if (backup.localStorage.appSettings) {
-      window.localStorage.setItem(
-        APP_SETTINGS_KEY,
-        JSON.stringify(backup.localStorage.appSettings),
-      );
+    for (const [key, value] of storageWrites) {
+      if (value === null || value === undefined) {
+        continue;
+      }
+      window.localStorage.setItem(key, JSON.stringify(value));
       localStorageRestored = true;
     }
-    if (backup.localStorage.composerDrafts) {
-      window.localStorage.setItem(
-        COMPOSER_DRAFTS_KEY,
-        JSON.stringify(backup.localStorage.composerDrafts),
-      );
-      localStorageRestored = true;
-    }
-    if (backup.localStorage.rendererState) {
-      window.localStorage.setItem(
-        RENDERER_STATE_KEY,
-        JSON.stringify(backup.localStorage.rendererState),
-      );
+    if (typeof backup.localStorage.theme === "string" && backup.localStorage.theme.length > 0) {
+      window.localStorage.setItem(THEME_STORAGE_KEY, backup.localStorage.theme);
       localStorageRestored = true;
     }
   } catch {
-    // Ignore storage write failures
+    // Ignore storage write failures.
   }
 
   return {
-    projectsRestored,
-    threadsRestored,
-    projectsSkipped,
-    threadsSkipped,
+    projectsRestored: importResult.importedProjectCount,
+    threadsRestored: importResult.importedThreadCount,
+    projectsSkipped: 0,
+    threadsSkipped: 0,
     localStorageRestored,
   };
 }

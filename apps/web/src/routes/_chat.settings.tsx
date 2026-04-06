@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  type ProjectId,
   ThreadId,
   type ProviderKind,
   type ServerConfig,
@@ -31,10 +32,35 @@ import { isElectron } from "../env";
 import { useDesktopUpdate } from "../hooks/useDesktopUpdate";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useTheme } from "../hooks/useTheme";
+import { createBackup, createBackupData, readBackupFile, restoreBackup } from "../lib/backup";
 import { serverConfigQueryOptions, serverQueryKeys } from "../lib/serverReactQuery";
+import {
+  downloadSyncBackup,
+  getSupabaseSession,
+  isSupabaseSyncConfigured,
+  listDeviceProjectBindings,
+  onSupabaseAuthStateChange,
+  signInWithSupabasePassword,
+  signOutFromSupabase,
+  signUpWithSupabasePassword,
+  upsertDeviceProjectBinding,
+  uploadSyncBackup,
+} from "../lib/supabaseSync";
+import {
+  findMissingProviderStatuses,
+  findProjectsNeedingBindings,
+  inferProvidersRequiredBySnapshot,
+} from "../lib/syncReadiness";
 import { ensureNativeApi } from "../nativeApi";
 import { requestOpenOnboarding } from "../onboarding";
 import { useStore } from "../store";
+import {
+  getSyncProjectBindingsSnapshot,
+  getSyncDeviceSnapshot,
+  replaceSyncProjectBindingsSnapshot,
+  useSyncDevice,
+  useSyncProjectBindings,
+} from "../syncDeviceState";
 import { preferredTerminalEditor } from "../terminal-links";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { Button } from "../components/ui/button";
@@ -1336,6 +1362,10 @@ function SettingsRouteView() {
               ) : null}
             </section>
 
+            <CloudSyncSection
+              serverConfig={serverConfigQuery.data}
+              projects={projects}
+            />
             <BackupRestoreSection />
           </div>
         </div>
@@ -1354,7 +1384,6 @@ function BackupRestoreSection() {
     setIsExporting(true);
     setBackupStatus(null);
     try {
-      const { createBackup } = await import("../lib/backup");
       await createBackup();
       setBackupStatus("Backup exported successfully.");
     } catch (err) {
@@ -1375,7 +1404,6 @@ function BackupRestoreSection() {
     setIsRestoring(true);
     setRestoreStatus(null);
     try {
-      const { readBackupFile, restoreBackup } = await import("../lib/backup");
       const backup = await readBackupFile(file);
       const result = await restoreBackup(backup);
 
@@ -1416,7 +1444,7 @@ function BackupRestoreSection() {
         <h2 className="text-sm font-medium text-foreground">Data backup</h2>
         <p className="mt-1 text-xs text-muted-foreground">
           Export all your projects, threads, messages, and settings to a JSON file.
-          Restore from a backup if you need to recover lost data.
+          Restore from a backup to replace the local app state with that snapshot.
         </p>
       </div>
 
@@ -1446,8 +1474,8 @@ function BackupRestoreSection() {
           <div>
             <p className="text-sm font-medium text-foreground">Restore from backup</p>
             <p className="text-xs text-muted-foreground">
-              Re-create missing projects and threads from a previously exported backup file.
-              Existing data will not be modified.
+              Replace the current local snapshot with a previously exported backup file.
+              Reload after restore so every screen rehydrates from the imported state.
             </p>
           </div>
           <label className="cursor-pointer">
@@ -1468,6 +1496,396 @@ function BackupRestoreSection() {
           <p className="text-xs text-muted-foreground">{restoreStatus}</p>
         ) : null}
       </div>
+    </section>
+  );
+}
+
+function CloudSyncSection({
+  serverConfig,
+  projects,
+}: {
+  serverConfig: ServerConfig | undefined;
+  projects: ReadonlyArray<{ id: ProjectId; cwd: string; name: string }>;
+}) {
+  const queryClient = useQueryClient();
+  const syncConfigured = isSupabaseSyncConfigured();
+  const device = useSyncDevice();
+  const { bindingsByProjectId, setProjectBinding } = useSyncProjectBindings();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
+  const [cloudBackup, setCloudBackup] = useState<Awaited<ReturnType<typeof downloadSyncBackup>>>(null);
+  const [pathCheckStatus, setPathCheckStatus] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [authStatus, setAuthStatus] = useState<string | null>(null);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [isSigningUp, setIsSigningUp] = useState(false);
+  const [isSyncingUp, setIsSyncingUp] = useState(false);
+  const [isSyncingDown, setIsSyncingDown] = useState(false);
+  const [isRefreshingCloudState, setIsRefreshingCloudState] = useState(false);
+  const [isBindingProjectId, setIsBindingProjectId] = useState<ProjectId | null>(null);
+  const [pathChecksByPath, setPathChecksByPath] = useState<Record<string, { exists: boolean; isDirectory: boolean }>>(
+    {},
+  );
+
+  const refreshCloudState = useCallback(async () => {
+    if (!syncConfigured) {
+      setCloudBackup(null);
+      setSessionEmail(null);
+      return;
+    }
+
+    setIsRefreshingCloudState(true);
+    setSyncStatus(null);
+    try {
+      const session = await getSupabaseSession();
+      setSessionEmail(session?.user.email ?? null);
+      if (!session) {
+        setCloudBackup(null);
+        return;
+      }
+
+      const [backup, remoteBindings] = await Promise.all([
+        downloadSyncBackup(),
+        listDeviceProjectBindings(device.deviceId),
+      ]);
+      const mergedBindings = {
+        ...remoteBindings,
+        ...getSyncProjectBindingsSnapshot(),
+      };
+      replaceSyncProjectBindingsSnapshot(mergedBindings);
+      setCloudBackup(backup);
+    } catch (error) {
+      setSyncStatus(error instanceof Error ? error.message : "Failed to load cloud sync state.");
+    } finally {
+      setIsRefreshingCloudState(false);
+    }
+  }, [device.deviceId, syncConfigured]);
+
+  useEffect(() => {
+    if (!syncConfigured) {
+      return;
+    }
+    const unsubscribe = onSupabaseAuthStateChange((session) => {
+      setSessionEmail(session?.user.email ?? null);
+    });
+    void refreshCloudState();
+    return unsubscribe;
+  }, [refreshCloudState, syncConfigured]);
+
+  useEffect(() => {
+    if (!cloudBackup) {
+      setPathChecksByPath({});
+      setPathCheckStatus(null);
+      return;
+    }
+
+    const api = ensureNativeApi();
+    const targetPaths = Array.from(
+      new Set(
+        cloudBackup.serverSnapshot.projects.map((project) => bindingsByProjectId[project.id] ?? project.workspaceRoot),
+      ),
+    );
+    let cancelled = false;
+
+    void api.server
+      .checkPaths({ paths: targetPaths })
+      .then((result) => {
+        if (cancelled) return;
+        const nextPathChecksByPath: Record<string, { exists: boolean; isDirectory: boolean }> = {};
+        for (const entry of result.paths) {
+          nextPathChecksByPath[entry.path] = {
+            exists: entry.exists,
+            isDirectory: entry.isDirectory,
+          };
+        }
+        setPathChecksByPath(nextPathChecksByPath);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setPathCheckStatus(error instanceof Error ? error.message : "Failed to inspect local project paths.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bindingsByProjectId, cloudBackup]);
+
+  const requiredProviders = useMemo(
+    () => inferProvidersRequiredBySnapshot(cloudBackup?.serverSnapshot),
+    [cloudBackup],
+  );
+  const missingProviders = useMemo(
+    () => findMissingProviderStatuses(requiredProviders, serverConfig?.providers ?? []),
+    [requiredProviders, serverConfig?.providers],
+  );
+  const projectsNeedingBindings = useMemo(
+    () =>
+      findProjectsNeedingBindings({
+        snapshot: cloudBackup?.serverSnapshot,
+        bindingsByProjectId,
+        pathChecks: Object.entries(pathChecksByPath).map(([path, result]) => ({
+          path,
+          exists: result.exists,
+          isDirectory: result.isDirectory,
+        })),
+      }),
+    [bindingsByProjectId, cloudBackup, pathChecksByPath],
+  );
+
+  const handleSignIn = useCallback(async () => {
+    setIsSigningIn(true);
+    setAuthStatus(null);
+    try {
+      await signInWithSupabasePassword(email.trim(), password);
+      setAuthStatus("Signed in.");
+      await refreshCloudState();
+    } catch (error) {
+      setAuthStatus(error instanceof Error ? error.message : "Sign-in failed.");
+    } finally {
+      setIsSigningIn(false);
+    }
+  }, [email, password, refreshCloudState]);
+
+  const handleSignUp = useCallback(async () => {
+    setIsSigningUp(true);
+    setAuthStatus(null);
+    try {
+      await signUpWithSupabasePassword(email.trim(), password);
+      setAuthStatus("Sign-up request sent. Check your inbox if confirmation is enabled.");
+      await refreshCloudState();
+    } catch (error) {
+      setAuthStatus(error instanceof Error ? error.message : "Sign-up failed.");
+    } finally {
+      setIsSigningUp(false);
+    }
+  }, [email, password, refreshCloudState]);
+
+  const handleSignOut = useCallback(async () => {
+    setAuthStatus(null);
+    try {
+      await signOutFromSupabase();
+      setCloudBackup(null);
+      setSessionEmail(null);
+      setAuthStatus("Signed out.");
+    } catch (error) {
+      setAuthStatus(error instanceof Error ? error.message : "Sign-out failed.");
+    }
+  }, []);
+
+  const handleUpload = useCallback(async () => {
+    setIsSyncingUp(true);
+    setSyncStatus(null);
+    try {
+      const backup = await createBackupData();
+      await uploadSyncBackup(backup);
+      for (const project of projects) {
+        await upsertDeviceProjectBinding({
+          deviceId: device.deviceId,
+          deviceName: device.deviceName,
+          projectId: project.id,
+          workspaceRoot: bindingsByProjectId[project.id] ?? project.cwd,
+        });
+      }
+      setCloudBackup(backup);
+      setSyncStatus("Cloud sync uploaded successfully.");
+    } catch (error) {
+      setSyncStatus(error instanceof Error ? error.message : "Upload failed.");
+    } finally {
+      setIsSyncingUp(false);
+    }
+  }, [bindingsByProjectId, device.deviceId, device.deviceName, projects]);
+
+  const handleDownload = useCallback(async () => {
+    setIsSyncingDown(true);
+    setSyncStatus(null);
+    try {
+      const backup = await downloadSyncBackup();
+      if (!backup) {
+        setSyncStatus("No cloud snapshot exists for this account yet.");
+        return;
+      }
+      const result = await restoreBackup(backup, {
+        projectBindingsByProjectId: bindingsByProjectId,
+      });
+      setCloudBackup(backup);
+      await queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() });
+      setSyncStatus(
+        `Cloud snapshot restored: ${result.projectsRestored} project(s), ${result.threadsRestored} thread(s). Reload the app to fully rehydrate the UI.`,
+      );
+    } catch (error) {
+      setSyncStatus(error instanceof Error ? error.message : "Download restore failed.");
+    } finally {
+      setIsSyncingDown(false);
+    }
+  }, [bindingsByProjectId, queryClient]);
+
+  const handleBindProject = useCallback(
+    async (projectId: ProjectId) => {
+      setIsBindingProjectId(projectId);
+      setPathCheckStatus(null);
+      try {
+        const api = ensureNativeApi();
+        const selectedPath = await api.dialogs.pickFolder();
+        if (!selectedPath) {
+          return;
+        }
+        setProjectBinding(projectId, selectedPath);
+        await upsertDeviceProjectBinding({
+          deviceId: device.deviceId,
+          deviceName: device.deviceName,
+          projectId,
+          workspaceRoot: selectedPath,
+        });
+        const existingProject = projects.find((project) => project.id === projectId);
+        if (existingProject) {
+          await api.orchestration.dispatchCommand({
+            type: "project.meta.update",
+            commandId: crypto.randomUUID(),
+            projectId,
+            workspaceRoot: selectedPath,
+          } as never);
+        }
+      } catch (error) {
+        setPathCheckStatus(error instanceof Error ? error.message : "Failed to bind project folder.");
+      } finally {
+        setIsBindingProjectId(null);
+      }
+    },
+    [device.deviceId, device.deviceName, projects, setProjectBinding],
+  );
+
+  return (
+    <section className="rounded-2xl border border-border bg-card p-5">
+      <div className="mb-4">
+        <h2 className="text-sm font-medium text-foreground">Cloud sync</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Sign in with Supabase to sync your snapshot across Mac and Windows, then bind local folders
+          per device where the workspace paths differ.
+        </p>
+      </div>
+
+      {!syncConfigured ? (
+        <div className="rounded-lg border border-border bg-background px-3 py-3 text-xs text-muted-foreground">
+          Supabase sync is not configured yet. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
+          for the desktop/web app, then reopen Settings.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto_auto]">
+            <Input
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="Email"
+              type="email"
+            />
+            <Input
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Password"
+              type="password"
+            />
+            <Button size="xs" variant="outline" onClick={handleSignIn} disabled={isSigningIn}>
+              {isSigningIn ? "Signing in..." : "Sign in"}
+            </Button>
+            <Button size="xs" variant="outline" onClick={handleSignUp} disabled={isSigningUp}>
+              {isSigningUp ? "Signing up..." : "Sign up"}
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span>Device: {device.deviceName}</span>
+            <span>Device ID: {device.deviceId}</span>
+            <span>Account: {sessionEmail ?? "Not signed in"}</span>
+            {sessionEmail ? (
+              <Button size="xs" variant="outline" onClick={handleSignOut}>
+                Sign out
+              </Button>
+            ) : null}
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => void refreshCloudState()}
+              disabled={isRefreshingCloudState}
+            >
+              {isRefreshingCloudState ? "Refreshing..." : "Refresh"}
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button size="xs" variant="outline" onClick={handleUpload} disabled={!sessionEmail || isSyncingUp}>
+              {isSyncingUp ? "Uploading..." : "Upload current state"}
+            </Button>
+            <Button size="xs" variant="outline" onClick={handleDownload} disabled={!sessionEmail || isSyncingDown}>
+              {isSyncingDown ? "Restoring..." : "Restore cloud state"}
+            </Button>
+          </div>
+
+          {authStatus ? <p className="text-xs text-muted-foreground">{authStatus}</p> : null}
+          {syncStatus ? <p className="text-xs text-muted-foreground">{syncStatus}</p> : null}
+          {pathCheckStatus ? <p className="text-xs text-muted-foreground">{pathCheckStatus}</p> : null}
+
+          {cloudBackup ? (
+            <div className="rounded-lg border border-border bg-background px-3 py-3">
+              <p className="text-sm font-medium text-foreground">Latest cloud snapshot</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Exported {formatRelativeTimeLabel(cloudBackup.exportedAt)} with{" "}
+                {cloudBackup.serverSnapshot.projects.length} project(s) and{" "}
+                {cloudBackup.serverSnapshot.threads.length} thread(s).
+              </p>
+            </div>
+          ) : null}
+
+          {missingProviders.length > 0 ? (
+            <div className="rounded-lg border border-border bg-background px-3 py-3">
+              <p className="text-sm font-medium text-foreground">Providers to set up on this device</p>
+              <div className="mt-2 space-y-2">
+                {missingProviders.map((status) => (
+                  <div key={status.provider} className="text-xs text-muted-foreground">
+                    {status.provider}: {formatProviderStatusLabel(status.status)} /{" "}
+                    {formatProviderAuthStatusLabel(status.authStatus)}
+                    {status.message ? ` - ${status.message}` : ""}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {projectsNeedingBindings.length > 0 ? (
+            <div className="rounded-lg border border-border bg-background px-3 py-3">
+              <p className="text-sm font-medium text-foreground">Projects needing a local folder</p>
+              <div className="mt-2 space-y-2">
+                {projectsNeedingBindings.map((project) => (
+                  <div
+                    key={project.projectId}
+                    className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium text-foreground">{project.title}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        Remote path: {project.workspaceRoot}
+                      </p>
+                      {project.boundWorkspaceRoot ? (
+                        <p className="truncate text-xs text-muted-foreground">
+                          Bound here: {project.boundWorkspaceRoot}
+                        </p>
+                      ) : null}
+                    </div>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() => void handleBindProject(project.projectId)}
+                      disabled={isBindingProjectId === project.projectId}
+                    >
+                      {isBindingProjectId === project.projectId ? "Choosing..." : "Choose folder"}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
     </section>
   );
 }

@@ -51,6 +51,7 @@ import { TerminalManager } from "./terminal/Services/Manager.ts";
 import { Keybindings } from "./keybindings";
 import { searchWorkspaceEntries } from "./workspaceEntries";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
+import { ProjectionSnapshotImport } from "./orchestration/Services/ProjectionSnapshotImport";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { OrchestrationReactor } from "./orchestration/Services/OrchestrationReactor";
 import { ProviderService } from "./provider/Services/ProviderService";
@@ -127,7 +128,7 @@ function providerStatusRetrySignature(status: {
   readonly status: string;
   readonly available: boolean;
   readonly authStatus: string;
-  readonly message?: string;
+  readonly message?: string | undefined;
   readonly models?: unknown;
   readonly quotaSnapshots?: unknown;
 }): string {
@@ -222,6 +223,7 @@ function stripRequestTag<T extends { _tag: string }>(body: T) {
 
 export type ServerCoreRuntimeServices =
   | OrchestrationEngineService
+  | ProjectionSnapshotImport
   | ProjectionSnapshotQuery
   | CheckpointDiffQuery
   | OrchestrationReactor
@@ -679,6 +681,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionReadModelQuery = yield* ProjectionSnapshotQuery;
+  const projectionSnapshotImport = yield* ProjectionSnapshotImport;
   const checkpointDiffQuery = yield* CheckpointDiffQuery;
   const orchestrationReactor = yield* OrchestrationReactor;
   const { openInEditor } = yield* Open;
@@ -978,6 +981,32 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         return status;
       }
 
+      case WS_METHODS.serverImportSnapshot: {
+        const body = stripRequestTag(request.body);
+        return yield* projectionSnapshotImport.replaceSnapshot(body);
+      }
+
+      case WS_METHODS.serverCheckPaths: {
+        const body = stripRequestTag(request.body);
+        const paths = yield* Effect.forEach(body.paths, (targetPath) =>
+          fileSystem.stat(targetPath).pipe(
+            Effect.map((stats) => ({
+              path: targetPath,
+              exists: true,
+              isDirectory: stats.type === "Directory",
+            })),
+            Effect.catch(() =>
+              Effect.succeed({
+                path: targetPath,
+                exists: false,
+                isDirectory: false,
+              }),
+            ),
+          ),
+        );
+        return { paths };
+      }
+
       case WS_METHODS.serverUpsertKeybinding: {
         const body = stripRequestTag(request.body);
         const keybindingsConfig = yield* keybindingsManager.upsertKeybindingRule(body);
@@ -1104,7 +1133,13 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     });
   });
 
-  yield* scheduleGitHubCopilotStartupHealthRetries(runPromise);
+  yield* scheduleGitHubCopilotStartupHealthRetries(runPromise).pipe(
+    Effect.catch((error) =>
+      Effect.logWarning("failed to schedule github copilot startup health retries", {
+        detail: error instanceof Error ? error.message : String(error),
+      }),
+    ),
+  );
 
   return httpServer;
 });
