@@ -4,6 +4,7 @@ import type { DesktopUpdateState } from "@t3sparks/contracts";
 import {
   getCanRetryAfterDownloadFailure,
   getAutoUpdateDisabledReason,
+  normalizeAutoUpdateInstallError,
   nextStatusAfterDownloadFailure,
   shouldBroadcastDownloadProgress,
 } from "./updateState";
@@ -95,6 +96,38 @@ describe("getAutoUpdateDisabledReason", () => {
       }),
     ).toContain("AppImage");
   });
+
+  it("reports unsigned mac installs as disabled", () => {
+    expect(
+      getAutoUpdateDisabledReason({
+        isDevelopment: false,
+        isPackaged: true,
+        platform: "darwin",
+        appImage: undefined,
+        disabledByEnv: false,
+        macSignature: {
+          signature: "adhoc",
+          teamIdentifier: "not set",
+        },
+      }),
+    ).toContain("unsigned local build");
+  });
+
+  it("allows signed mac installs", () => {
+    expect(
+      getAutoUpdateDisabledReason({
+        isDevelopment: false,
+        isPackaged: true,
+        platform: "darwin",
+        appImage: undefined,
+        disabledByEnv: false,
+        macSignature: {
+          signature: "Developer ID Application: Example",
+          teamIdentifier: "ABCDE12345",
+        },
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("nextStatusAfterDownloadFailure", () => {
@@ -138,5 +171,21 @@ describe("getCanRetryAfterDownloadFailure", () => {
         availableVersion: null,
       }),
     ).toBe(false);
+  });
+});
+
+describe("normalizeAutoUpdateInstallError", () => {
+  it("rewrites ShipIt signature mismatch failures into a manual reinstall hint", () => {
+    expect(
+      normalizeAutoUpdateInstallError(
+        "Code signature at URL file:///tmp/T3 Sparks (Alpha).app/ did not pass validation: code failed to satisfy specified code requirement(s)",
+      ),
+    ).toContain("Install the latest signed GitHub release manually once");
+  });
+
+  it("leaves unrelated install errors unchanged", () => {
+    expect(normalizeAutoUpdateInstallError("backend shutdown timed out")).toBe(
+      "backend shutdown timed out",
+    );
   });
 });

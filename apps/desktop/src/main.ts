@@ -30,6 +30,7 @@ import { showDesktopConfirmDialog } from "./confirmDialog";
 import { fixPath } from "./fixPath";
 import {
   getAutoUpdateDisabledReason,
+  normalizeAutoUpdateInstallError,
   shouldBroadcastDownloadProgress,
 } from "./updateState";
 import {
@@ -707,16 +708,52 @@ function setUpdateState(patch: Partial<DesktopUpdateState>): void {
   emitUpdateState();
 }
 
-function shouldEnableAutoUpdates(): boolean {
-  return (
-    getAutoUpdateDisabledReason({
-      isDevelopment,
-      isPackaged: app.isPackaged,
-      platform: process.platform,
-      appImage: process.env.APPIMAGE,
-      disabledByEnv: process.env.T3SPARKS_DISABLE_AUTO_UPDATE === "1",
-    }) === null
-  );
+function inspectCurrentMacAppSignature(): {
+  signature: string | null;
+  teamIdentifier: string | null;
+} | null {
+  if (!app.isPackaged || process.platform !== "darwin") {
+    return null;
+  }
+
+  const appBundlePath = Path.resolve(process.execPath, "..", "..", "..");
+  const result = ChildProcess.spawnSync("codesign", ["-dvvv", appBundlePath], {
+    encoding: "utf8",
+  });
+  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  if (result.error || result.status !== 0 || output.trim().length === 0) {
+    return null;
+  }
+
+  const signatureMatch = output.match(/^Signature=(.+)$/m);
+  const teamIdentifierMatch = output.match(/^TeamIdentifier=(.+)$/m);
+  return {
+    signature: signatureMatch?.[1]?.trim() ?? null,
+    teamIdentifier: teamIdentifierMatch?.[1]?.trim() ?? null,
+  };
+}
+
+function resolveAutoUpdateDisabledReason(): string | null {
+  return getAutoUpdateDisabledReason({
+    isDevelopment,
+    isPackaged: app.isPackaged,
+    platform: process.platform,
+    appImage: process.env.APPIMAGE,
+    disabledByEnv: process.env.T3SPARKS_DISABLE_AUTO_UPDATE === "1",
+    macSignature: inspectCurrentMacAppSignature(),
+  });
+}
+
+function setDisabledUpdateState(reason: string | null): void {
+  setUpdateState({
+    ...createInitialDesktopUpdateState(app.getVersion()),
+    enabled: false,
+    status: "disabled",
+    message: reason,
+  });
+  if (reason) {
+    console.info(`[desktop-updater] Automatic updates disabled: ${reason}`);
+  }
 }
 
 async function checkForUpdates(
@@ -807,7 +844,7 @@ async function installDownloadedUpdate(): Promise<{
     autoUpdater.quitAndInstall();
     return { accepted: true, completed: true };
   } catch (error: unknown) {
-    const message = formatErrorMessage(error);
+    const message = normalizeAutoUpdateInstallError(formatErrorMessage(error));
     isQuitting = false;
     setUpdateState(
       reduceDesktopUpdateStateOnInstallFailure(updateState, message),
@@ -818,13 +855,16 @@ async function installDownloadedUpdate(): Promise<{
 }
 
 function configureAutoUpdater(): void {
-  const enabled = shouldEnableAutoUpdates();
+  const disabledReason = resolveAutoUpdateDisabledReason();
+  const enabled = disabledReason === null;
   setUpdateState({
     ...createInitialDesktopUpdateState(app.getVersion()),
     enabled,
     status: enabled ? "idle" : "disabled",
+    message: disabledReason,
   });
   if (!enabled) {
+    setDisabledUpdateState(disabledReason);
     return;
   }
   updaterConfigured = true;
