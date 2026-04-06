@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import {
   CheckpointRef,
   CommandId,
@@ -14,18 +18,27 @@ import { describe, expect, it } from "vitest";
 import { PersistenceSqlError } from "../../persistence/Errors.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
-import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import { layerConfig, SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import {
   OrchestrationEventStore,
   type OrchestrationEventStoreShape,
 } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
-import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
+import { ProjectionSnapshotImportLive } from "./ProjectionSnapshotImport.ts";
+import {
+  OrchestrationEngineService,
+  type OrchestrationEngineShape,
+} from "../Services/OrchestrationEngine.ts";
 import {
   OrchestrationProjectionPipeline,
   type OrchestrationProjectionPipelineShape,
 } from "../Services/ProjectionPipeline.ts";
+import {
+  ProjectionSnapshotImport,
+  type ProjectionSnapshotImportShape,
+} from "../Services/ProjectionSnapshotImport.ts";
 import { ServerConfig } from "../../config.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
@@ -37,6 +50,7 @@ const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.makeUnsa
 async function createOrchestrationSystem() {
   const orchestrationLayer = OrchestrationEngineLive.pipe(
     Layer.provide(OrchestrationProjectionPipelineLive),
+    Layer.provide(OrchestrationProjectionSnapshotQueryLive),
     Layer.provide(OrchestrationEventStoreLive),
     Layer.provide(OrchestrationCommandReceiptRepositoryLive),
     Layer.provide(SqlitePersistenceMemory),
@@ -56,7 +70,130 @@ function now() {
   return new Date().toISOString();
 }
 
+function createImportEngineStubLayer() {
+  return Layer.succeed(OrchestrationEngineService, {
+    getReadModel: () => Effect.die("getReadModel should not be called in import stub"),
+    replaceReadModel: () => Effect.void,
+    readEvents: () => Stream.empty,
+    dispatch: () => Effect.die("dispatch should not be called in import stub"),
+    streamDomainEvents: Stream.empty,
+  } satisfies OrchestrationEngineShape);
+}
+
+async function createPersistentOrchestrationSystem(stateDir: string) {
+  const orchestrationLayer = OrchestrationEngineLive.pipe(
+    Layer.provide(OrchestrationProjectionPipelineLive),
+    Layer.provide(OrchestrationProjectionSnapshotQueryLive),
+    Layer.provide(OrchestrationEventStoreLive),
+    Layer.provide(OrchestrationCommandReceiptRepositoryLive),
+    Layer.provideMerge(layerConfig),
+    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), stateDir)),
+    Layer.provideMerge(NodeServices.layer),
+  );
+  const runtime = ManagedRuntime.make(orchestrationLayer);
+  const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+  return {
+    engine,
+    run: <A, E>(effect: Effect.Effect<A, E>) => runtime.runPromise(effect),
+    dispose: () => runtime.dispose(),
+  };
+}
+
+async function createPersistentImportSystem(stateDir: string) {
+  const importLayer = Layer.mergeAll(
+    createImportEngineStubLayer(),
+    OrchestrationProjectionSnapshotQueryLive,
+    ProjectionSnapshotImportLive.pipe(Layer.provide(createImportEngineStubLayer())),
+  ).pipe(
+    Layer.provideMerge(layerConfig),
+    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), stateDir)),
+    Layer.provideMerge(NodeServices.layer),
+  );
+  const runtime = ManagedRuntime.make(importLayer);
+  const importer = await runtime.runPromise(Effect.service(ProjectionSnapshotImport));
+  return {
+    importer,
+    run: <A, E>(effect: Effect.Effect<A, E>) => runtime.runPromise(effect),
+    dispose: () => runtime.dispose(),
+  };
+}
+
 describe("OrchestrationEngine", () => {
+  it("bootstraps restored threads from the persisted projection snapshot after restart", async () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "t3sparks-engine-restore-"));
+
+    try {
+      const importerSystem = await createPersistentImportSystem(stateDir);
+      await importerSystem.run(
+        importerSystem.importer.replaceSnapshot({
+          snapshot: {
+            snapshotSequence: 42,
+            updatedAt: "2026-04-05T12:00:00.000Z",
+            projects: [
+              {
+                id: asProjectId("project-restore"),
+                title: "Restore Project",
+                workspaceRoot: "C:/Users/example/project-restore",
+                defaultModel: "gpt-5.4",
+                scripts: [],
+                createdAt: "2026-04-01T10:00:00.000Z",
+                updatedAt: "2026-04-05T11:55:00.000Z",
+                deletedAt: null,
+              },
+            ],
+            threads: [
+              {
+                id: ThreadId.makeUnsafe("thread-restore"),
+                projectId: asProjectId("project-restore"),
+                title: "Restored thread",
+                model: "claude-opus-4.6",
+                runtimeMode: "full-access",
+                interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+                branch: "main",
+                worktreePath: null,
+                latestTurn: null,
+                createdAt: "2026-04-01T10:05:00.000Z",
+                updatedAt: "2026-04-05T11:56:20.000Z",
+                archivedAt: null,
+                deletedAt: null,
+                messages: [],
+                proposedPlans: [],
+                activities: [],
+                checkpoints: [],
+                session: null,
+              },
+            ],
+          },
+        }),
+      );
+      await importerSystem.dispose();
+
+      const system = await createPersistentOrchestrationSystem(stateDir);
+      const { engine } = system;
+      const bootReadModel = await system.run(engine.getReadModel());
+      expect(bootReadModel.threads.find((thread) => thread.id === "thread-restore")?.title).toBe(
+        "Restored thread",
+      );
+
+      await system.run(
+        engine.dispatch({
+          type: "thread.meta.update",
+          commandId: CommandId.makeUnsafe("cmd-restored-thread-update"),
+          threadId: ThreadId.makeUnsafe("thread-restore"),
+          title: "Restored thread updated",
+        }),
+      );
+
+      const updatedReadModel = await system.run(engine.getReadModel());
+      expect(
+        updatedReadModel.threads.find((thread) => thread.id === "thread-restore")?.title,
+      ).toBe("Restored thread updated");
+      await system.dispose();
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
   it("returns deterministic read models for repeated reads", async () => {
     const createdAt = now();
     const system = await createOrchestrationSystem();
@@ -375,6 +512,7 @@ describe("OrchestrationEngine", () => {
     const runtime = ManagedRuntime.make(
       OrchestrationEngineLive.pipe(
         Layer.provide(OrchestrationProjectionPipelineLive),
+        Layer.provide(OrchestrationProjectionSnapshotQueryLive),
         Layer.provide(Layer.succeed(OrchestrationEventStore, flakyStore)),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
         Layer.provide(SqlitePersistenceMemory),
@@ -461,6 +599,7 @@ describe("OrchestrationEngine", () => {
     const runtime = ManagedRuntime.make(
       OrchestrationEngineLive.pipe(
         Layer.provide(Layer.succeed(OrchestrationProjectionPipeline, flakyProjectionPipeline)),
+        Layer.provide(OrchestrationProjectionSnapshotQueryLive),
         Layer.provide(OrchestrationEventStoreLive),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
         Layer.provide(SqlitePersistenceMemory),
@@ -596,6 +735,7 @@ describe("OrchestrationEngine", () => {
     const runtime = ManagedRuntime.make(
       OrchestrationEngineLive.pipe(
         Layer.provide(Layer.succeed(OrchestrationProjectionPipeline, flakyProjectionPipeline)),
+        Layer.provide(OrchestrationProjectionSnapshotQueryLive),
         Layer.provide(Layer.succeed(OrchestrationEventStore, nonTransactionalStore)),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
         Layer.provide(SqlitePersistenceMemory),
