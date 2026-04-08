@@ -14,6 +14,7 @@ import { ZapIcon } from "lucide-react";
 import {
   APP_SERVICE_TIER_OPTIONS,
   APP_TIMESTAMP_FORMAT_OPTIONS,
+  type AppSettings,
   type AppTimestampFormat,
   MAX_CUSTOM_MODEL_LENGTH,
   shouldShowFastTierIcon,
@@ -34,6 +35,16 @@ import { useThreadActions } from "../hooks/useThreadActions";
 import { useTheme } from "../hooks/useTheme";
 import { createBackup, createBackupData, readBackupFile, restoreBackup } from "../lib/backup";
 import { serverConfigQueryOptions, serverQueryKeys } from "../lib/serverReactQuery";
+import {
+  ELEVENLABS_SPEECH_MODEL_OPTIONS,
+  LOCAL_SPEECH_MODEL_OPTIONS,
+  SPEECH_TO_TEXT_LANGUAGE_OPTIONS,
+  SPEECH_TO_TEXT_MODE_OPTIONS,
+  SPEECH_TO_TEXT_SETTINGS_HASH,
+  TOGETHER_SPEECH_MODEL_OPTIONS,
+  isSpeechToTextConfigured,
+  warmLocalSpeechModel,
+} from "../lib/speechToText";
 import {
   downloadSyncBackup,
   getSupabaseSession,
@@ -56,7 +67,6 @@ import { requestOpenOnboarding } from "../onboarding";
 import { useStore } from "../store";
 import {
   getSyncProjectBindingsSnapshot,
-  getSyncDeviceSnapshot,
   replaceSyncProjectBindingsSnapshot,
   useSyncDevice,
   useSyncProjectBindings,
@@ -496,6 +506,32 @@ function SettingsRouteView() {
       });
     }
   }, [desktopUpdatePrimaryAction, desktopUpdateState, downloadUpdate, installUpdate]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const scrollToHashTarget = () => {
+      const hash = window.location.hash.replace(/^#/, "");
+      if (!hash) {
+        return;
+      }
+
+      window.requestAnimationFrame(() => {
+        document.getElementById(hash)?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
+    };
+
+    scrollToHashTarget();
+    window.addEventListener("hashchange", scrollToHashTarget);
+    return () => {
+      window.removeEventListener("hashchange", scrollToHashTarget);
+    };
+  }, []);
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground isolate">
@@ -1212,6 +1248,12 @@ function SettingsRouteView() {
               ) : null}
             </section>
 
+            <SpeechToTextSection
+              settings={settings}
+              defaults={defaults}
+              updateSettings={updateSettings}
+            />
+
             <section className="rounded-2xl border border-border bg-card p-5">
               <div className="mb-4">
                 <h2 className="text-sm font-medium text-foreground">Keybindings</h2>
@@ -1371,6 +1413,337 @@ function SettingsRouteView() {
         </div>
       </div>
     </SidebarInset>
+  );
+}
+
+function SpeechToTextSection({
+  settings,
+  defaults,
+  updateSettings,
+}: {
+  settings: AppSettings;
+  defaults: AppSettings;
+  updateSettings: (patch: Partial<AppSettings>) => void;
+}) {
+  const [isPreparingLocalModel, setIsPreparingLocalModel] = useState(false);
+  const [localModelStatus, setLocalModelStatus] = useState<string | null>(null);
+
+  const isCustomSpeechToTextSettings =
+    settings.speechToTextMode !== defaults.speechToTextMode ||
+    settings.speechToTextLocalModel !== defaults.speechToTextLocalModel ||
+    settings.speechToTextTogetherApiKey !== defaults.speechToTextTogetherApiKey ||
+    settings.speechToTextTogetherModel !== defaults.speechToTextTogetherModel ||
+    settings.speechToTextElevenLabsApiKey !== defaults.speechToTextElevenLabsApiKey ||
+    settings.speechToTextElevenLabsModel !== defaults.speechToTextElevenLabsModel ||
+    settings.speechToTextLanguage !== defaults.speechToTextLanguage;
+
+  const handlePrepareLocalModel = useCallback(async () => {
+    setIsPreparingLocalModel(true);
+    setLocalModelStatus(null);
+    try {
+      await warmLocalSpeechModel(settings, ensureNativeApi(), (status) => {
+        setLocalModelStatus(status.message);
+      });
+      setLocalModelStatus("Local model is ready on this device.");
+      toastManager.add({
+        type: "success",
+        title: "Local speech model ready",
+        description: "Composer dictation can now run with the selected local model.",
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to prepare the local speech model.";
+      setLocalModelStatus(message);
+      toastManager.add({
+        type: "error",
+        title: "Local speech setup failed",
+        description: message,
+      });
+    } finally {
+      setIsPreparingLocalModel(false);
+    }
+  }, [settings]);
+
+  return (
+    <section
+      id={SPEECH_TO_TEXT_SETTINGS_HASH}
+      className="rounded-2xl border border-border bg-card p-5"
+    >
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-sm font-medium text-foreground">Speech to text</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Dictation is available from the composer microphone button only. If it is not configured
+            yet, the composer sends you back here.
+          </p>
+        </div>
+        <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+          {isSpeechToTextConfigured(settings) ? "Configured" : "Needs setup"}
+        </span>
+      </div>
+
+      <div className="space-y-2" role="radiogroup" aria-label="Speech to text mode">
+        {SPEECH_TO_TEXT_MODE_OPTIONS.map((option) => {
+          const selected = settings.speechToTextMode === option.value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              className={`flex w-full items-start justify-between rounded-lg border px-3 py-2 text-left transition-colors ${
+                selected
+                  ? "border-primary/60 bg-primary/8 text-foreground"
+                  : "border-border bg-background text-muted-foreground hover:bg-accent"
+              }`}
+              onClick={() => updateSettings({ speechToTextMode: option.value })}
+            >
+              <span className="flex flex-col">
+                <span className="text-sm font-medium">{option.label}</span>
+                <span className="text-xs">{option.description}</span>
+              </span>
+              {selected ? (
+                <span className="rounded bg-primary/14 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+                  Selected
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 space-y-4">
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-foreground">Preferred language</span>
+          <Select
+            items={SPEECH_TO_TEXT_LANGUAGE_OPTIONS.map((option) => ({
+              label: option.label,
+              value: option.value,
+            }))}
+            value={settings.speechToTextLanguage}
+            onValueChange={(value) => {
+              if (!value) return;
+              updateSettings({ speechToTextLanguage: value });
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectPopup alignItemWithTrigger={false}>
+              {SPEECH_TO_TEXT_LANGUAGE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Use auto-detect unless you mostly dictate in one language and want lower latency.
+          </p>
+        </label>
+
+        {settings.speechToTextMode === "local" ? (
+          <div className="rounded-xl border border-border bg-background/60 p-4">
+            <div className="space-y-1">
+              <h3 className="text-sm font-medium text-foreground">Local on-device setup</h3>
+              <p className="text-xs text-muted-foreground">
+                The selected Whisper model downloads into this device&apos;s local cache. Run the
+                prepare action once here, or let the first dictation do it lazily.
+              </p>
+            </div>
+
+            <label className="mt-4 block space-y-1">
+              <span className="text-xs font-medium text-foreground">Local model</span>
+              <Select
+                items={LOCAL_SPEECH_MODEL_OPTIONS.map((option) => ({
+                  label: option.label,
+                  value: option.value,
+                }))}
+                value={settings.speechToTextLocalModel}
+                onValueChange={(value) => {
+                  if (!value) return;
+                  setLocalModelStatus(null);
+                  updateSettings({ speechToTextLocalModel: value });
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup alignItemWithTrigger={false}>
+                  {LOCAL_SPEECH_MODEL_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {LOCAL_SPEECH_MODEL_OPTIONS.find(
+                  (option) => option.value === settings.speechToTextLocalModel,
+                )?.description ?? "Choose a local Whisper model for on-device dictation."}
+              </p>
+            </label>
+
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                disabled={isPreparingLocalModel}
+                onClick={() => {
+                  void handlePrepareLocalModel();
+                }}
+              >
+                {isPreparingLocalModel ? "Preparing..." : "Download / prepare local model"}
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                First-time setup can take a while depending on model size.
+              </span>
+            </div>
+
+            {localModelStatus ? (
+              <p className="mt-3 text-xs text-muted-foreground">{localModelStatus}</p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {settings.speechToTextMode === "together" ? (
+          <div className="rounded-xl border border-border bg-background/60 p-4">
+            <div className="space-y-1">
+              <h3 className="text-sm font-medium text-foreground">Together.ai cloud setup</h3>
+              <p className="text-xs text-muted-foreground">
+                T3 Sparks records locally, then sends the captured audio to Together.ai for
+                transcription using your API key.
+              </p>
+            </div>
+
+            <label className="mt-4 block space-y-1">
+              <span className="text-xs font-medium text-foreground">Together.ai API key</span>
+              <Input
+                type="password"
+                value={settings.speechToTextTogetherApiKey}
+                placeholder="tgai_..."
+                onChange={(event) =>
+                  updateSettings({ speechToTextTogetherApiKey: event.target.value })
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Stored on this device only. This feature does not sync API keys between machines.
+              </p>
+            </label>
+
+            <label className="mt-4 block space-y-1">
+              <span className="text-xs font-medium text-foreground">Cloud model</span>
+              <Select
+                items={TOGETHER_SPEECH_MODEL_OPTIONS.map((option) => ({
+                  label: option.label,
+                  value: option.value,
+                }))}
+                value={settings.speechToTextTogetherModel}
+                onValueChange={(value) => {
+                  if (!value) return;
+                  updateSettings({ speechToTextTogetherModel: value });
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup alignItemWithTrigger={false}>
+                  {TOGETHER_SPEECH_MODEL_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {TOGETHER_SPEECH_MODEL_OPTIONS.find(
+                  (option) => option.value === settings.speechToTextTogetherModel,
+                )?.description ?? "Choose a Together.ai speech model for cloud dictation."}
+              </p>
+            </label>
+          </div>
+        ) : null}
+
+        {settings.speechToTextMode === "elevenlabs" ? (
+          <div className="rounded-xl border border-border bg-background/60 p-4">
+            <div className="space-y-1">
+              <h3 className="text-sm font-medium text-foreground">ElevenLabs cloud setup</h3>
+              <p className="text-xs text-muted-foreground">
+                T3 Sparks records locally, then sends the captured audio to ElevenLabs Scribe for
+                transcription using your API key.
+              </p>
+            </div>
+
+            <label className="mt-4 block space-y-1">
+              <span className="text-xs font-medium text-foreground">ElevenLabs API key</span>
+              <Input
+                type="password"
+                value={settings.speechToTextElevenLabsApiKey}
+                placeholder="sk_..."
+                onChange={(event) =>
+                  updateSettings({ speechToTextElevenLabsApiKey: event.target.value })
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Stored on this device only. This feature does not sync API keys between machines.
+              </p>
+            </label>
+
+            <label className="mt-4 block space-y-1">
+              <span className="text-xs font-medium text-foreground">Cloud model</span>
+              <Select
+                items={ELEVENLABS_SPEECH_MODEL_OPTIONS.map((option) => ({
+                  label: option.label,
+                  value: option.value,
+                }))}
+                value={settings.speechToTextElevenLabsModel}
+                onValueChange={(value) => {
+                  if (!value) return;
+                  updateSettings({ speechToTextElevenLabsModel: value });
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup alignItemWithTrigger={false}>
+                  {ELEVENLABS_SPEECH_MODEL_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {ELEVENLABS_SPEECH_MODEL_OPTIONS.find(
+                  (option) => option.value === settings.speechToTextElevenLabsModel,
+                )?.description ?? "Choose an ElevenLabs Scribe model for cloud dictation."}
+              </p>
+            </label>
+          </div>
+        ) : null}
+      </div>
+
+      {isCustomSpeechToTextSettings ? (
+        <div className="mt-4 flex justify-end">
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() =>
+              updateSettings({
+                speechToTextMode: defaults.speechToTextMode,
+                speechToTextLocalModel: defaults.speechToTextLocalModel,
+                speechToTextTogetherApiKey: defaults.speechToTextTogetherApiKey,
+                speechToTextTogetherModel: defaults.speechToTextTogetherModel,
+                speechToTextElevenLabsApiKey: defaults.speechToTextElevenLabsApiKey,
+                speechToTextElevenLabsModel: defaults.speechToTextElevenLabsModel,
+                speechToTextLanguage: defaults.speechToTextLanguage,
+              })
+            }
+          >
+            Restore default
+          </Button>
+        </div>
+      ) : null}
+    </section>
   );
 }
 

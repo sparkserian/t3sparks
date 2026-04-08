@@ -501,6 +501,8 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       target: target === "dmg" ? [target, "zip"] : [target],
       icon: "icon.icns",
       category: "public.app-category.developer-tools",
+      entitlements: "apps/desktop/resources/entitlements.mac.plist",
+      entitlementsInherit: "apps/desktop/resources/entitlements.mac.plist",
     };
   }
 

@@ -1,4 +1,4 @@
-import type { GitStackedAction } from "@t3sparks/contracts";
+import type { GitStackedAction, ModelSlug, ProviderKind, ThreadId } from "@t3sparks/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "../nativeApi";
 
@@ -95,10 +95,16 @@ export function gitRunStackedActionMutationOptions(input: {
     mutationKey: gitMutationKeys.runStackedAction(input.cwd),
     mutationFn: async ({
       action,
+      threadId,
+      provider,
+      model,
       commitMessage,
       featureBranch,
     }: {
       action: GitStackedAction;
+      threadId?: ThreadId | null;
+      provider?: ProviderKind;
+      model?: ModelSlug;
       commitMessage?: string;
       featureBranch?: boolean;
     }) => {
@@ -107,6 +113,9 @@ export function gitRunStackedActionMutationOptions(input: {
       return api.git.runStackedAction({
         cwd: input.cwd,
         action,
+        ...(threadId ? { threadId } : {}),
+        ...(provider ? { provider } : {}),
+        ...(model ? { model } : {}),
         ...(commitMessage ? { commitMessage } : {}),
         ...(featureBranch ? { featureBranch } : {}),
       });

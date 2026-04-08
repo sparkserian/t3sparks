@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 
 export const PROJECT_NOTES_STORAGE_KEY = "t3sparks:project-notes:v1";
 export const MAX_PROJECT_NOTE_LENGTH = 20_000;
-const MAX_PROJECT_NOTE_TITLE_LENGTH = 120;
+export const MAX_PROJECT_NOTE_TITLE_LENGTH = 120;
 
 export interface ProjectNote {
   id: string;

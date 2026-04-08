@@ -387,6 +387,7 @@ export interface ComposerPromptEditorHandle {
   focus: () => void;
   focusAt: (cursor: number) => void;
   focusAtEnd: () => void;
+  isFocused: () => boolean;
   readSnapshot: () => { value: string; cursor: number };
 }
 
@@ -714,6 +715,10 @@ function ComposerPromptEditorInner({
       },
       focusAtEnd: () => {
         focusAt(snapshotRef.current.value.length);
+      },
+      isFocused: () => {
+        const rootElement = editor.getRootElement();
+        return rootElement !== null && document.activeElement === rootElement;
       },
       readSnapshot,
     }),

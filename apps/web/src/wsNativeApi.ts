@@ -232,6 +232,9 @@ export function createWsNativeApi(): NativeApi {
         transport.request(WS_METHODS.serverCheckGitHubCopilotStatus),
       importSnapshot: (input) => transport.request(WS_METHODS.serverImportSnapshot, input),
       checkPaths: (input) => transport.request(WS_METHODS.serverCheckPaths, input),
+      warmLocalSpeechModel: (input) =>
+        transport.request(WS_METHODS.serverWarmLocalSpeechModel, input),
+      transcribeAudio: (input) => transport.request(WS_METHODS.serverTranscribeAudio, input),
       upsertKeybinding: (input) => transport.request(WS_METHODS.serverUpsertKeybinding, input),
     },
     orchestration: {

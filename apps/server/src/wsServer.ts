@@ -77,6 +77,7 @@ import { AnalyticsService } from "./telemetry/Services/AnalyticsService.ts";
 import { Convex } from "./convex/Services/Convex.ts";
 import { Gemini } from "./gemini/Services/Gemini.ts";
 import { ensureProjectDirectory } from "./projectDirectories.ts";
+import { transcribeLocalAudio, warmLocalSpeechModel } from "./localSpeech.ts";
 
 /**
  * ServerShape - Service API for server lifecycle control.
@@ -121,6 +122,30 @@ function rejectUpgrade(socket: Duplex, statusCode: number, message: string): voi
       "\r\n" +
       message,
   );
+}
+
+function inferAudioFileExtension(mimeType: string): string {
+  switch (mimeType) {
+    case "audio/mpeg":
+      return "mp3";
+    case "audio/mp4":
+      return "m4a";
+    case "audio/wav":
+      return "wav";
+    case "audio/flac":
+      return "flac";
+    case "audio/webm":
+    case "audio/webm;codecs=opus":
+      return "webm";
+    default:
+      return "webm";
+  }
+}
+
+function decodeFloat32ArrayFromBase64(base64: string): Float32Array {
+  const bytes = Buffer.from(base64, "base64");
+  const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  return new Float32Array(arrayBuffer);
 }
 
 function providerStatusRetrySignature(status: {
@@ -1005,6 +1030,102 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           ),
         );
         return { paths };
+      }
+
+      case WS_METHODS.serverWarmLocalSpeechModel: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: async () => {
+            await warmLocalSpeechModel(body.model);
+            return { ready: true };
+          },
+          catch: (cause) =>
+            new RouteRequestError({
+              message:
+                cause instanceof Error
+                  ? cause.message
+                  : `Failed to prepare local speech model: ${String(cause)}`,
+            }),
+        });
+      }
+
+      case WS_METHODS.serverTranscribeAudio: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: async () => {
+            if (body.provider === "local") {
+              const audio = decodeFloat32ArrayFromBase64(body.audioBase64);
+              const text = await transcribeLocalAudio(body.model, body.language, audio);
+              return { text };
+            }
+
+            const formData = new FormData();
+            const audioBytes = Buffer.from(body.audioBase64, "base64");
+            const filename = `dictation.${inferAudioFileExtension(body.mimeType)}`;
+            formData.append("file", new Blob([audioBytes], { type: body.mimeType }), filename);
+            let response: Response;
+            if (body.provider === "elevenlabs") {
+              formData.append("model_id", body.model);
+              if (body.language && body.language !== "auto") {
+                formData.append("language_code", body.language);
+              }
+              formData.append("file_format", "other");
+              response = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
+                method: "POST",
+                headers: {
+                  "xi-api-key": body.apiKey,
+                },
+                body: formData,
+              });
+            } else {
+              formData.append("model", body.model);
+              if (body.language && body.language !== "auto") {
+                formData.append("language", body.language);
+              }
+              formData.append("response_format", "json");
+              response = await fetch("https://api.together.ai/v1/audio/transcriptions", {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${body.apiKey}`,
+                },
+                body: formData,
+              });
+            }
+
+            if (!response.ok) {
+              let errorMessage = `${
+                body.provider === "elevenlabs" ? "ElevenLabs" : "Together AI"
+              } transcription failed (${response.status})`;
+              const rawBody = await response.text();
+              try {
+                const errorBody = JSON.parse(rawBody) as {
+                  error?: { message?: string };
+                  message?: string;
+                };
+                errorMessage =
+                  errorBody.error?.message?.trim() ||
+                  errorBody.message?.trim() ||
+                  errorMessage;
+              } catch {
+                const fallback = rawBody.trim();
+                if (fallback) {
+                  errorMessage = fallback;
+                }
+              }
+              throw new Error(errorMessage);
+            }
+
+            const payload = (await response.json()) as { text?: string };
+            return { text: payload.text?.trim() ?? "" };
+          },
+          catch: (cause) =>
+            new RouteRequestError({
+              message:
+                cause instanceof Error
+                  ? cause.message
+                  : `Failed to transcribe audio: ${String(cause)}`,
+            }),
+        });
       }
 
       case WS_METHODS.serverUpsertKeybinding: {

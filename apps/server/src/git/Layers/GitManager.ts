@@ -278,6 +278,8 @@ export const makeGitManager = Effect.gen(function* () {
   const resolveCommitAndBranchSuggestion = (input: {
     cwd: string;
     branch: string | null;
+    provider?: "codex" | "claudeAgent" | "gemini" | "githubCopilot";
+    model?: string;
     commitMessage?: string;
     /** When true, also produce a semantic feature branch name. */
     includeBranch?: boolean;
@@ -306,6 +308,8 @@ export const makeGitManager = Effect.gen(function* () {
           branch: input.branch,
           stagedSummary: limitContext(context.stagedSummary, 8_000),
           stagedPatch: limitContext(context.stagedPatch, 50_000),
+          ...(input.provider ? { provider: input.provider } : {}),
+          ...(input.model ? { model: input.model } : {}),
           ...(input.includeBranch ? { includeBranch: true } : {}),
         })
         .pipe(Effect.map((result) => sanitizeCommitMessage(result)));
@@ -321,6 +325,8 @@ export const makeGitManager = Effect.gen(function* () {
   const runCommitStep = (
     cwd: string,
     branch: string | null,
+    provider?: "codex" | "claudeAgent" | "gemini" | "githubCopilot",
+    model?: string,
     commitMessage?: string,
     preResolvedSuggestion?: CommitAndBranchSuggestion,
   ) =>
@@ -330,6 +336,8 @@ export const makeGitManager = Effect.gen(function* () {
         (yield* resolveCommitAndBranchSuggestion({
           cwd,
           branch,
+          ...(provider ? { provider } : {}),
+          ...(model ? { model } : {}),
           ...(commitMessage ? { commitMessage } : {}),
         }));
       if (!suggestion) {
@@ -344,7 +352,12 @@ export const makeGitManager = Effect.gen(function* () {
       };
     });
 
-  const runPrStep = (cwd: string, fallbackBranch: string | null) =>
+  const runPrStep = (
+    cwd: string,
+    fallbackBranch: string | null,
+    provider?: "codex" | "claudeAgent" | "gemini" | "githubCopilot",
+    model?: string,
+  ) =>
     Effect.gen(function* () {
       const details = yield* gitCore.statusDetails(cwd);
       const branch = details.branch ?? fallbackBranch;
@@ -383,6 +396,8 @@ export const makeGitManager = Effect.gen(function* () {
         commitSummary: limitContext(rangeContext.commitSummary, 20_000),
         diffSummary: limitContext(rangeContext.diffSummary, 20_000),
         diffPatch: limitContext(rangeContext.diffPatch, 60_000),
+        ...(provider ? { provider } : {}),
+        ...(model ? { model } : {}),
       });
 
       const bodyFile = path.join(tempDir, `t3sparks-pr-body-${process.pid}-${randomUUID()}.md`);
@@ -445,11 +460,19 @@ export const makeGitManager = Effect.gen(function* () {
     };
   });
 
-  const runFeatureBranchStep = (cwd: string, branch: string | null, commitMessage?: string) =>
+  const runFeatureBranchStep = (
+    cwd: string,
+    branch: string | null,
+    provider?: "codex" | "claudeAgent" | "gemini" | "githubCopilot",
+    model?: string,
+    commitMessage?: string,
+  ) =>
     Effect.gen(function* () {
       const suggestion = yield* resolveCommitAndBranchSuggestion({
         cwd,
         branch,
+        ...(provider ? { provider } : {}),
+        ...(model ? { model } : {}),
         ...(commitMessage ? { commitMessage } : {}),
         includeBranch: true,
       });
@@ -498,6 +521,8 @@ export const makeGitManager = Effect.gen(function* () {
         const result = yield* runFeatureBranchStep(
           input.cwd,
           initialStatus.branch,
+          input.provider,
+          input.model,
           input.commitMessage,
         );
         branchStep = result.branchStep;
@@ -512,6 +537,8 @@ export const makeGitManager = Effect.gen(function* () {
       const commit = yield* runCommitStep(
         input.cwd,
         currentBranch,
+        input.provider,
+        input.model,
         commitMessageForStep,
         preResolvedCommitSuggestion,
       );
@@ -521,7 +548,7 @@ export const makeGitManager = Effect.gen(function* () {
         : { status: "skipped_not_requested" as const };
 
       const pr = wantsPr
-        ? yield* runPrStep(input.cwd, currentBranch)
+        ? yield* runPrStep(input.cwd, currentBranch, input.provider, input.model)
         : { status: "skipped_not_requested" as const };
 
       return {

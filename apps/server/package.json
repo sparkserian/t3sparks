@@ -1,6 +1,6 @@
 {
   "name": "t3sparks",
-  "version": "0.0.45",
+  "version": "0.0.52",
   "repository": {
     "type": "git",
     "url": "https://github.com/sparkserian/t3sparks",
@@ -28,6 +28,7 @@
     "@effect/sql-sqlite-bun": "catalog:",
     "@github/copilot": "1.0.7",
     "@github/copilot-sdk": "0.1.32",
+    "@huggingface/transformers": "^4.0.1",
     "@pierre/diffs": "^1.1.0-beta.16",
     "effect": "catalog:",
     "node-pty": "^1.1.0",

@@ -37,7 +37,12 @@ import {
   ProjectWriteFileInput,
 } from "./project";
 import { OpenInEditorInput } from "./editor";
-import { ServerCheckPathsInput, ServerImportSnapshotInput } from "./server";
+import {
+  ServerCheckPathsInput,
+  ServerImportSnapshotInput,
+  ServerTranscribeAudioInput,
+  ServerWarmLocalSpeechModelInput,
+} from "./server";
 
 // ── WebSocket RPC Method Names ───────────────────────────────────────
 
@@ -83,6 +88,8 @@ export const WS_METHODS = {
   serverCheckGitHubCopilotStatus: "server.checkGitHubCopilotStatus",
   serverImportSnapshot: "server.importSnapshot",
   serverCheckPaths: "server.checkPaths",
+  serverWarmLocalSpeechModel: "server.warmLocalSpeechModel",
+  serverTranscribeAudio: "server.transcribeAudio",
   serverUpsertKeybinding: "server.upsertKeybinding",
 } as const;
 
@@ -155,6 +162,8 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.serverCheckGitHubCopilotStatus, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverImportSnapshot, ServerImportSnapshotInput),
   tagRequestBody(WS_METHODS.serverCheckPaths, ServerCheckPathsInput),
+  tagRequestBody(WS_METHODS.serverWarmLocalSpeechModel, ServerWarmLocalSpeechModelInput),
+  tagRequestBody(WS_METHODS.serverTranscribeAudio, ServerTranscribeAudioInput),
   tagRequestBody(WS_METHODS.serverUpsertKeybinding, KeybindingRule),
 ]);
 

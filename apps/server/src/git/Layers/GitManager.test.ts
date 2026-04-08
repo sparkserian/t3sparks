@@ -4,6 +4,7 @@ import path from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, PlatformError, Scope } from "effect";
+import type { ProviderKind } from "@t3sparks/contracts";
 import { expect } from "vitest";
 
 import { GitCommandError, GitHubCliError, TextGenerationError } from "../Errors.ts";
@@ -32,7 +33,9 @@ interface FakeGitTextGeneration {
     branch: string | null;
     stagedSummary: string;
     stagedPatch: string;
-    includeBranch?: boolean;
+    provider?: ProviderKind | undefined;
+    model?: string | undefined;
+    includeBranch?: boolean | undefined;
   }) => Effect.Effect<
     { subject: string; body: string; branch?: string | undefined },
     TextGenerationError
@@ -44,10 +47,14 @@ interface FakeGitTextGeneration {
     commitSummary: string;
     diffSummary: string;
     diffPatch: string;
+    provider?: ProviderKind | undefined;
+    model?: string | undefined;
   }) => Effect.Effect<{ title: string; body: string }, TextGenerationError>;
   generateBranchName: (input: {
     cwd: string;
     message: string;
+    provider?: ProviderKind | undefined;
+    model?: string | undefined;
   }) => Effect.Effect<{ branch: string }, TextGenerationError>;
 }
 
@@ -291,6 +298,8 @@ function runStackedAction(
     action: "commit" | "commit_push" | "commit_push_pr";
     commitMessage?: string;
     featureBranch?: boolean;
+    provider?: ProviderKind;
+    model?: string;
   },
 ) {
   return manager.runStackedAction(input);
@@ -535,6 +544,70 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           Effect.map((result) => result.stdout.trim()),
         ),
       ).toContain("- details from user");
+    }),
+  );
+
+  it.effect("passes the selected provider and model through git text generation", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3sparks-git-manager-");
+      yield* initRepo(repoDir);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
+      fs.writeFileSync(path.join(repoDir, "README.md"), "hello\nprovider-aware\n");
+
+      const commitInputs: Array<{ provider?: ProviderKind; model?: string }> = [];
+      const prInputs: Array<{ provider?: ProviderKind; model?: string }> = [];
+
+      const { manager } = yield* makeManager({
+        textGeneration: {
+          generateCommitMessage: (input) =>
+            Effect.sync(() => {
+              commitInputs.push({
+                ...(input.provider ? { provider: input.provider } : {}),
+                ...(input.model ? { model: input.model } : {}),
+              });
+              return {
+                subject: "Use connected provider for git text",
+                body: "",
+              };
+            }),
+          generatePrContent: (input) =>
+            Effect.sync(() => {
+              prInputs.push({
+                ...(input.provider ? { provider: input.provider } : {}),
+                ...(input.model ? { model: input.model } : {}),
+              });
+              return {
+                title: "Use connected provider for git text",
+                body: "## Summary\n- Verify provider forwarding\n\n## Testing\n- Not run",
+              };
+            }),
+        },
+      });
+
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "commit_push_pr",
+        provider: "githubCopilot",
+        model: "copilot:claude-opus-4.1",
+      });
+
+      expect(result.commit.status).toBe("created");
+      expect(result.push.status).toBe("pushed");
+      expect(result.pr.status).toBe("created");
+      expect(commitInputs).toEqual([
+        {
+          provider: "githubCopilot",
+          model: "copilot:claude-opus-4.1",
+        },
+      ]);
+      expect(prInputs).toEqual([
+        {
+          provider: "githubCopilot",
+          model: "copilot:claude-opus-4.1",
+        },
+      ]);
     }),
   );
 

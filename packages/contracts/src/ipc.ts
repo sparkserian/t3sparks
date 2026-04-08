@@ -30,6 +30,10 @@ import type {
   ServerCheckPathsResult,
   ServerImportSnapshotInput,
   ServerImportSnapshotResult,
+  ServerTranscribeAudioInput,
+  ServerTranscribeAudioResult,
+  ServerWarmLocalSpeechModelInput,
+  ServerWarmLocalSpeechModelResult,
 } from "./server";
 import type {
   TerminalClearInput,
@@ -87,6 +91,14 @@ export interface DesktopUpdateActionResult {
   state: DesktopUpdateState;
 }
 
+export type DesktopMediaAccessKind = "microphone" | "camera";
+export type DesktopMediaAccessStatus =
+  | "granted"
+  | "denied"
+  | "not-determined"
+  | "restricted"
+  | "unknown";
+
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   pickFolder: () => Promise<string | null>;
@@ -103,6 +115,8 @@ export interface DesktopBridge {
   getUpdateState: () => Promise<DesktopUpdateState>;
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;
+  getMediaAccessStatus: (kind: DesktopMediaAccessKind) => Promise<DesktopMediaAccessStatus>;
+  askForMediaAccess: (kind: DesktopMediaAccessKind) => Promise<boolean>;
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
 }
 
@@ -161,6 +175,10 @@ export interface NativeApi {
     checkGitHubCopilotStatus: () => Promise<ServerProviderStatus>;
     importSnapshot: (input: ServerImportSnapshotInput) => Promise<ServerImportSnapshotResult>;
     checkPaths: (input: ServerCheckPathsInput) => Promise<ServerCheckPathsResult>;
+    warmLocalSpeechModel: (
+      input: ServerWarmLocalSpeechModelInput,
+    ) => Promise<ServerWarmLocalSpeechModelResult>;
+    transcribeAudio: (input: ServerTranscribeAudioInput) => Promise<ServerTranscribeAudioResult>;
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
   };
   orchestration: {

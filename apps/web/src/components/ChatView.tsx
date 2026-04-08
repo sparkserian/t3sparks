@@ -137,8 +137,10 @@ import {
   DiffIcon,
   EllipsisIcon,
   FolderClosedIcon,
+  LoaderCircleIcon,
   LockIcon,
   LockOpenIcon,
+  MicIcon,
   PlusIcon,
   TerminalSquare,
   Undo2Icon,
@@ -232,6 +234,15 @@ import { estimateTimelineMessageHeight } from "./timelineHeight";
 import ProjectNotesSheet from "./ProjectNotesSheet";
 import { useProjectNotes } from "../projectNotes";
 import { formatTimestamp } from "../timestampFormat";
+import {
+  SPEECH_TO_TEXT_SETTINGS_HASH,
+  appendTranscriptionToPrompt,
+  getSpeechToTextSetupMessage,
+  isSpeechToTextConfigured,
+  startSpeechCapture,
+  transcribeSpeechBlob,
+  type SpeechCaptureSession,
+} from "../lib/speechToText";
 
 function formatMessageMeta(
   createdAt: string,
@@ -677,6 +688,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const [composerTrigger, setComposerTrigger] = useState<ComposerTrigger | null>(() =>
     detectComposerTrigger(prompt, prompt.length),
   );
+  const [speechToTextState, setSpeechToTextState] = useState<"idle" | "recording" | "transcribing">(
+    "idle",
+  );
+  const [speechToTextStatus, setSpeechToTextStatus] = useState<string | null>(null);
   const [lastInvokedScriptByProjectId, setLastInvokedScriptByProjectId] = useState<
     Record<string, string>
   >(() => readLastInvokedScriptByProjectFromStorage());
@@ -702,6 +717,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const composerMenuOpenRef = useRef(false);
   const composerMenuItemsRef = useRef<ComposerCommandItem[]>([]);
   const activeComposerMenuItemRef = useRef<ComposerCommandItem | null>(null);
+  const speechCaptureSessionRef = useRef<SpeechCaptureSession | null>(null);
+  const speechToTextStateRef = useRef<"idle" | "recording" | "transcribing">(speechToTextState);
+  const speechShortcutModeRef = useRef<"idle" | "hold" | "locked">("idle");
+  const speechShortcutSuppressKeyUpRef = useRef(false);
+  const speechShortcutLastControlTapAtRef = useRef(0);
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewHandoffTimeoutByMessageIdRef = useRef<Record<string, number>>({});
   const sendInFlightRef = useRef(false);
@@ -1444,6 +1464,17 @@ export default function ChatView({ threadId }: ChatViewProps) {
       focusComposer();
     });
   }, [focusComposer]);
+  const openSpeechToTextSettings = useCallback(() => {
+    toastManager.add({
+      type: "info",
+      title: "Set up speech to text first",
+      description: getSpeechToTextSetupMessage(settings),
+    });
+    void navigate({
+      to: "/settings",
+      hash: SPEECH_TO_TEXT_SETTINGS_HASH,
+    });
+  }, [navigate, settings]);
   const setTerminalOpen = useCallback(
     (open: boolean) => {
       if (!activeThreadId) return;
@@ -3450,6 +3481,202 @@ export default function ChatView({ threadId }: ChatViewProps) {
     ],
   );
 
+  const stopSpeechToTextRecording = useCallback(async () => {
+    if (speechToTextStateRef.current !== "recording") {
+      return;
+    }
+
+    const session = speechCaptureSessionRef.current;
+    if (!session) {
+      setSpeechToTextState("idle");
+      setSpeechToTextStatus(null);
+      return;
+    }
+
+    speechCaptureSessionRef.current = null;
+    setSpeechToTextState("transcribing");
+    setSpeechToTextStatus("Finishing recording...");
+
+    try {
+      const capture = await session.stop();
+      const api = readNativeApi();
+      if (!api) {
+        throw new Error("Native API not found");
+      }
+      const transcript = await transcribeSpeechBlob(capture.blob, settings, api, (status) => {
+        setSpeechToTextStatus(status.message);
+      });
+      if (!transcript) {
+        toastManager.add({
+          type: "warning",
+          title: "No speech detected",
+          description:
+            capture.detectedSignal === false
+              ? capture.inputLabel
+                ? `No microphone input was detected from "${capture.inputLabel}". Check the selected input source and macOS microphone access, then try again.`
+                : "No microphone input was detected from the current device. Check the selected input source and macOS microphone access, then try again."
+              : capture.detectedSignal === true
+              ? "Audio was recorded, but the transcription provider returned empty text. Try a longer phrase or a different speech model."
+              : "Try again and speak a little closer to the microphone.",
+        });
+      } else {
+        const nextPrompt = appendTranscriptionToPrompt(promptRef.current, transcript);
+        promptRef.current = nextPrompt;
+        setPrompt(nextPrompt);
+        setComposerCursor(nextPrompt.length);
+        setComposerTrigger(detectComposerTrigger(nextPrompt, nextPrompt.length));
+        scheduleComposerFocus();
+      }
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Speech transcription failed",
+        description: error instanceof Error ? error.message : "Unable to transcribe recorded audio.",
+      });
+    } finally {
+      setSpeechToTextState("idle");
+      setSpeechToTextStatus(null);
+    }
+  }, [scheduleComposerFocus, setPrompt, settings]);
+
+  const startSpeechToTextRecording = useCallback(async (): Promise<boolean> => {
+    if (speechToTextStateRef.current === "transcribing") {
+      return false;
+    }
+
+    if (!isSpeechToTextConfigured(settings)) {
+      openSpeechToTextSettings();
+      return false;
+    }
+
+    if (speechToTextStateRef.current === "recording") {
+      return true;
+    }
+
+    try {
+      const session = await startSpeechCapture();
+      speechCaptureSessionRef.current = session;
+      setSpeechToTextState("recording");
+      setSpeechToTextStatus("Listening...");
+      return true;
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Microphone unavailable",
+        description:
+          error instanceof Error ? error.message : "Unable to start microphone recording.",
+      });
+      setSpeechToTextState("idle");
+      setSpeechToTextStatus(null);
+      return false;
+    }
+  }, [openSpeechToTextSettings, settings]);
+
+  const onSpeechToTextToggle = useCallback(async () => {
+    if (speechToTextState === "recording") {
+      speechShortcutModeRef.current = "idle";
+      speechShortcutSuppressKeyUpRef.current = false;
+      await stopSpeechToTextRecording();
+      return;
+    }
+
+    await startSpeechToTextRecording();
+  }, [startSpeechToTextRecording, speechToTextState, stopSpeechToTextRecording]);
+
+  useEffect(() => {
+    speechToTextStateRef.current = speechToTextState;
+  }, [speechToTextState]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof navigator === "undefined") {
+      return;
+    }
+    if (!isMacPlatform(navigator.platform)) {
+      return;
+    }
+
+    const isComposerFocused = (): boolean => composerEditorRef.current?.isFocused() ?? false;
+
+    const onControlKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Control" || event.repeat) {
+        return;
+      }
+      if (!isComposerFocused()) {
+        return;
+      }
+      if (speechToTextStateRef.current === "transcribing") {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (speechShortcutModeRef.current === "locked") {
+        speechShortcutModeRef.current = "idle";
+        speechShortcutSuppressKeyUpRef.current = true;
+        speechShortcutLastControlTapAtRef.current = 0;
+        void stopSpeechToTextRecording();
+        return;
+      }
+
+      const now = Date.now();
+      const isDoubleTap = now - speechShortcutLastControlTapAtRef.current <= 300;
+      speechShortcutLastControlTapAtRef.current = now;
+
+      if (isDoubleTap) {
+        speechShortcutModeRef.current = "locked";
+        speechShortcutSuppressKeyUpRef.current = true;
+        void startSpeechToTextRecording().then((started) => {
+          if (!started) {
+            speechShortcutModeRef.current = "idle";
+            speechShortcutSuppressKeyUpRef.current = false;
+          }
+        });
+        return;
+      }
+
+      speechShortcutModeRef.current = "hold";
+      speechShortcutSuppressKeyUpRef.current = false;
+      void startSpeechToTextRecording().then((started) => {
+        if (!started && speechShortcutModeRef.current === "hold") {
+          speechShortcutModeRef.current = "idle";
+        }
+      });
+    };
+
+    const onControlKeyUp = (event: KeyboardEvent) => {
+      if (event.key !== "Control") {
+        return;
+      }
+
+      if (speechShortcutSuppressKeyUpRef.current) {
+        speechShortcutSuppressKeyUpRef.current = false;
+        return;
+      }
+
+      if (speechShortcutModeRef.current !== "hold") {
+        return;
+      }
+
+      event.preventDefault();
+      speechShortcutModeRef.current = "idle";
+      void stopSpeechToTextRecording();
+    };
+
+    window.addEventListener("keydown", onControlKeyDown, true);
+    window.addEventListener("keyup", onControlKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", onControlKeyDown, true);
+      window.removeEventListener("keyup", onControlKeyUp, true);
+    };
+  }, [startSpeechToTextRecording, stopSpeechToTextRecording]);
+
+  useEffect(() => {
+    return () => {
+      speechCaptureSessionRef.current?.cancel();
+      speechCaptureSessionRef.current = null;
+    };
+  }, []);
+
   const onComposerCommandKey = (
     key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab",
     event: KeyboardEvent,
@@ -3519,6 +3746,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
     void onRevertToTurnCount(targetTurnCount);
   };
+  const isSpeechToTextReady = isSpeechToTextConfigured(settings);
+  const isSpeechToTextBusy = speechToTextState === "transcribing";
+  const isSpeechToTextRecording = speechToTextState === "recording";
+  const speechToTextButtonLabel = !isSpeechToTextReady
+    ? "Set up dictation"
+    : isSpeechToTextRecording
+      ? "Stop recording"
+      : isSpeechToTextBusy
+        ? "Transcribing audio"
+        : "Start dictation";
+  const isSpeechToTextButtonDisabled =
+    isConnecting || isComposerApprovalState || isSpeechToTextBusy || phase === "running";
 
   // Empty state: no active thread
   if (!activeThread) {
@@ -3567,6 +3806,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
           terminalToggleShortcutLabel={toggleTerminalShortcutLabel}
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
+          provider={selectedProvider}
+          model={selectedModel}
           diffOpen={diffOpen}
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
@@ -3767,88 +4008,134 @@ export default function ChatView({ threadId }: ChatViewProps) {
               )}
               <div className="relative">
                 {showComposerOverlayPrimaryAction ? (
-                  <div className="pointer-events-none absolute right-1 top-1 z-10 sm:right-0 sm:top-0.5">
-                    {phase === "running" ? (
-                      <button
-                        type="button"
-                        className="pointer-events-auto flex size-8 items-center justify-center rounded-full bg-rose-500/90 text-white transition-all duration-150 hover:bg-rose-500 hover:scale-105"
-                        onClick={() => void onInterrupt()}
-                        aria-label="Stop generation"
-                      >
-                        <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 12 12"
-                          fill="currentColor"
-                          aria-hidden="true"
-                        >
-                          <rect x="2" y="2" width="8" height="8" rx="1.5" />
-                        </svg>
-                      </button>
-                    ) : (
-                      <button
-                        type="submit"
-                        className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full bg-primary/90 text-primary-foreground transition-all duration-150 hover:bg-primary hover:scale-105 disabled:opacity-30 disabled:hover:scale-100"
-                        disabled={
-                          isSendBusy ||
-                          isConnecting ||
-                          (!prompt.trim() && composerImages.length === 0)
-                        }
-                        aria-label={
-                          isConnecting
-                            ? "Connecting"
-                            : isPreparingWorktree
-                              ? "Preparing worktree"
-                              : isSendBusy
-                                ? "Sending"
-                                : "Send message"
-                        }
-                        title={isPreparingWorktree ? "Preparing worktree" : "Send message"}
-                      >
-                        {isConnecting || isSendBusy ? (
-                          <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 14 14"
-                            fill="none"
-                            className="animate-spin"
-                            aria-hidden="true"
-                          >
-                            <circle
-                              cx="7"
-                              cy="7"
-                              r="5.5"
-                              stroke="currentColor"
-                              strokeWidth="1.5"
-                              strokeLinecap="round"
-                              strokeDasharray="20 12"
-                            />
-                          </svg>
-                        ) : (
-                          <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 14 14"
-                            fill="none"
-                            aria-hidden="true"
-                          >
-                            <path
-                              d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
-                              stroke="currentColor"
-                              strokeWidth="1.8"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
+                  <div className="pointer-events-none absolute right-1 top-1 z-10 flex flex-col items-end gap-1 sm:right-0 sm:top-0.5">
+                    {speechToTextStatus && phase !== "running" ? (
+                      <div
+                        className={cn(
+                          "rounded-full border border-border/70 bg-background/92 px-2.5 py-1 text-[10px] font-medium tracking-wide text-foreground/80 shadow-xs backdrop-blur-sm",
+                          isSpeechToTextRecording ? "animate-pulse" : "",
                         )}
-                      </button>
-                    )}
+                      >
+                        {speechToTextStatus.replace(/\.\.\.$/, "")}
+                      </div>
+                    ) : null}
+                    <div className="flex items-center gap-2">
+                      {phase === "running" ? (
+                        <button
+                          type="button"
+                          className="pointer-events-auto flex size-8 items-center justify-center rounded-full bg-rose-500/90 text-white transition-all duration-150 hover:bg-rose-500 hover:scale-105"
+                          onClick={() => void onInterrupt()}
+                          aria-label="Stop generation"
+                        >
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 12 12"
+                            fill="currentColor"
+                            aria-hidden="true"
+                          >
+                            <rect x="2" y="2" width="8" height="8" rx="1.5" />
+                          </svg>
+                        </button>
+                      ) : (
+                        <>
+                        <button
+                          type="button"
+                          className={cn(
+                            "pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border transition-all duration-200 disabled:opacity-40 disabled:hover:scale-100",
+                            isSpeechToTextRecording
+                              ? "border-rose-500/50 bg-rose-500/12 text-rose-500 shadow-[0_0_0_6px_rgba(244,63,94,0.08)] hover:scale-105"
+                              : "border-border/75 bg-background/90 text-foreground/78 hover:border-foreground/18 hover:bg-background hover:scale-105",
+                          )}
+                          disabled={isSpeechToTextButtonDisabled}
+                          onClick={() => {
+                            void onSpeechToTextToggle();
+                          }}
+                          title={speechToTextButtonLabel}
+                          aria-label={speechToTextButtonLabel}
+                        >
+                          {isSpeechToTextBusy ? (
+                            <LoaderCircleIcon className="animate-spin" />
+                          ) : isSpeechToTextRecording ? (
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 14 14"
+                              fill="currentColor"
+                              aria-hidden="true"
+                            >
+                              <rect x="3" y="3" width="8" height="8" rx="1.5" />
+                            </svg>
+                          ) : (
+                            <MicIcon className="size-4.5" />
+                          )}
+                        </button>
+
+                        <button
+                          type="submit"
+                          className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full bg-primary/92 text-primary-foreground transition-all duration-150 hover:bg-primary hover:scale-105 disabled:opacity-30 disabled:hover:scale-100"
+                          disabled={
+                            isSendBusy ||
+                            isConnecting ||
+                            (!prompt.trim() && composerImages.length === 0)
+                          }
+                          aria-label={
+                            isConnecting
+                              ? "Connecting"
+                              : isPreparingWorktree
+                                ? "Preparing worktree"
+                                : isSendBusy
+                                  ? "Sending"
+                                  : "Send message"
+                          }
+                          title={isPreparingWorktree ? "Preparing worktree" : "Send message"}
+                        >
+                          {isConnecting || isSendBusy ? (
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 14 14"
+                              fill="none"
+                              className="animate-spin"
+                              aria-hidden="true"
+                            >
+                              <circle
+                                cx="7"
+                                cy="7"
+                                r="5.5"
+                                stroke="currentColor"
+                                strokeWidth="1.5"
+                                strokeLinecap="round"
+                                strokeDasharray="20 12"
+                              />
+                            </svg>
+                          ) : (
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 14 14"
+                              fill="none"
+                              aria-hidden="true"
+                            >
+                              <path
+                                d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          )}
+                        </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 ) : null}
                 <ComposerPromptEditor
                   ref={composerEditorRef}
                   {...(showComposerOverlayPrimaryAction
-                    ? { className: "pr-12 sm:pr-13" }
+                    ? { className: "min-h-20 pr-24 sm:min-h-21 sm:pr-26" }
                     : {})}
                   value={
                     isComposerApprovalState
@@ -4278,6 +4565,8 @@ interface ChatHeaderProps {
   terminalToggleShortcutLabel: string | null;
   diffToggleShortcutLabel: string | null;
   gitCwd: string | null;
+  provider: ProviderKind;
+  model: ModelSlug;
   diffOpen: boolean;
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
@@ -4295,6 +4584,8 @@ const ChatHeader = memo(function ChatHeader({
   terminalToggleShortcutLabel,
   diffToggleShortcutLabel,
   gitCwd,
+  provider,
+  model,
   diffOpen,
   onToggleTerminal,
   onToggleDiff,
@@ -4370,7 +4661,14 @@ const ChatHeader = memo(function ChatHeader({
             openInCwd={openInCwd}
           />
         )}
-        {activeProjectName && <GitActionsControl gitCwd={gitCwd} activeThreadId={activeThreadId} />}
+        {activeProjectName && (
+          <GitActionsControl
+            gitCwd={gitCwd}
+            activeThreadId={activeThreadId}
+            provider={provider}
+            model={model}
+          />
+        )}
         <Tooltip>
           <TooltipTrigger
             render={

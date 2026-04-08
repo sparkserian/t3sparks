@@ -104,6 +104,26 @@ describe("project notes", () => {
     });
   });
 
+  it("preserves spaces inside note titles when saving and updating", () => {
+    withMockWindow(() => {
+      const created = createProjectNote("/tmp/project-a", {
+        title: "Launch plan draft",
+        content: "Initial content",
+      });
+
+      expect(getProjectNotesSnapshot("/tmp/project-a")[0]?.title).toBe("Launch plan draft");
+
+      const updated = updateProjectNote("/tmp/project-a", created.id, {
+        title: "Launch plan final review",
+      });
+
+      expect(updated?.title).toBe("Launch plan final review");
+      expect(getProjectNotesSnapshot("/tmp/project-a")[0]?.title).toBe(
+        "Launch plan final review",
+      );
+    });
+  });
+
   it("clears a persisted note explicitly", () => {
     withMockWindow(() => {
       createProjectNote("/tmp/project-a", { title: "Launch", content: "Write launch email" });

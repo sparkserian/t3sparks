@@ -38,6 +38,13 @@ export const APP_TIMESTAMP_FORMAT_OPTIONS = [
 export type AppTimestampFormat = (typeof APP_TIMESTAMP_FORMAT_OPTIONS)[number]["value"];
 const AppServiceTierSchema = Schema.Literals(["auto", "fast", "flex"]);
 const AppTimestampFormatSchema = Schema.Literals(["locale", "12-hour", "24-hour"]);
+const AppSpeechToTextModeSchema = Schema.Literals([
+  "disabled",
+  "local",
+  "together",
+  "elevenlabs",
+]);
+export type AppSpeechToTextMode = typeof AppSpeechToTextModeSchema.Type;
 const MODELS_WITH_FAST_SUPPORT = new Set(["gpt-5.4"]);
 const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
   codex: new Set(getModelOptions("codex").map((option) => option.slug)),
@@ -81,6 +88,27 @@ const AppSettingsSchema = Schema.Struct({
   ),
   enableModelSwitchSummary: Schema.Boolean.pipe(
     Schema.withConstructorDefault(() => Option.some(true)),
+  ),
+  speechToTextMode: AppSpeechToTextModeSchema.pipe(
+    Schema.withConstructorDefault(() => Option.some("disabled")),
+  ),
+  speechToTextLocalModel: Schema.String.check(Schema.isMaxLength(256)).pipe(
+    Schema.withConstructorDefault(() => Option.some("onnx-community/whisper-tiny.en")),
+  ),
+  speechToTextTogetherApiKey: Schema.String.check(Schema.isMaxLength(4096)).pipe(
+    Schema.withConstructorDefault(() => Option.some("")),
+  ),
+  speechToTextTogetherModel: Schema.String.check(Schema.isMaxLength(256)).pipe(
+    Schema.withConstructorDefault(() => Option.some("openai/whisper-large-v3")),
+  ),
+  speechToTextElevenLabsApiKey: Schema.String.check(Schema.isMaxLength(4096)).pipe(
+    Schema.withConstructorDefault(() => Option.some("")),
+  ),
+  speechToTextElevenLabsModel: Schema.String.check(Schema.isMaxLength(256)).pipe(
+    Schema.withConstructorDefault(() => Option.some("scribe_v2")),
+  ),
+  speechToTextLanguage: Schema.String.check(Schema.isMaxLength(16)).pipe(
+    Schema.withConstructorDefault(() => Option.some("auto")),
   ),
 });
 export type AppSettings = typeof AppSettingsSchema.Type;

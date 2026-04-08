@@ -13,7 +13,9 @@ import {
   Menu,
   nativeImage,
   protocol,
+  session,
   shell,
+  systemPreferences,
 } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
 import * as Effect from "effect/Effect";
@@ -60,6 +62,8 @@ const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
+const MEDIA_ACCESS_STATUS_CHANNEL = "desktop:media-access-status";
+const MEDIA_ACCESS_REQUEST_CHANNEL = "desktop:media-access-request";
 const STATE_DIR =
   process.env.T3SPARKS_STATE_DIR?.trim() ||
   Path.join(OS.homedir(), ".t3sparks", "userdata");
@@ -163,6 +167,100 @@ function normalizeDesktopPath(rawPath: unknown): string | null {
 
   const trimmedPath = rawPath.trim();
   return trimmedPath.length > 0 ? trimmedPath : null;
+}
+
+function normalizeMediaAccessKind(rawKind: unknown): "microphone" | "camera" | null {
+  return rawKind === "microphone" || rawKind === "camera" ? rawKind : null;
+}
+
+function isTrustedDesktopOrigin(rawOrigin: string | null | undefined): boolean {
+  if (typeof rawOrigin !== "string" || rawOrigin.length === 0) {
+    return false;
+  }
+
+  try {
+    const originUrl = new URL(rawOrigin);
+    if (originUrl.protocol === `${DESKTOP_SCHEME}:`) {
+      return originUrl.hostname === "app";
+    }
+
+    if (
+      (originUrl.protocol === "http:" || originUrl.protocol === "https:") &&
+      (originUrl.hostname === "127.0.0.1" || originUrl.hostname === "localhost")
+    ) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
+}
+
+function readPermissionOrigin(
+  details: unknown,
+  fallbackOrigin: string | null | undefined,
+): string {
+  if (
+    details &&
+    typeof details === "object" &&
+    "requestingUrl" in details &&
+    typeof details.requestingUrl === "string" &&
+    details.requestingUrl.length > 0
+  ) {
+    return details.requestingUrl;
+  }
+
+  return fallbackOrigin ?? "";
+}
+
+function readPermissionMediaType(details: unknown): string {
+  if (
+    details &&
+    typeof details === "object" &&
+    "mediaType" in details &&
+    typeof details.mediaType === "string" &&
+    details.mediaType.length > 0
+  ) {
+    return details.mediaType;
+  }
+
+  return "unknown";
+}
+
+function configureMediaPermissionHandlers(): void {
+  const defaultSession = session.defaultSession;
+
+  defaultSession.setPermissionCheckHandler(
+    (webContents, permission, requestingOrigin, details) => {
+      if (permission !== "media") {
+        return false;
+      }
+
+      const origin = readPermissionOrigin(details, requestingOrigin || webContents?.getURL());
+      const allowed = isTrustedDesktopOrigin(origin);
+      writeDesktopLogHeader(
+        `media permission check permission=${permission} allowed=${allowed} origin=${sanitizeLogValue(origin || "unknown")} mediaType=${sanitizeLogValue(readPermissionMediaType(details))}`,
+      );
+      return allowed;
+    },
+  );
+
+  defaultSession.setPermissionRequestHandler(
+    (webContents, permission, callback, details) => {
+      if (permission !== "media") {
+        callback(false);
+        return;
+      }
+
+      const origin = readPermissionOrigin(details, webContents.getURL());
+      const allowed = isTrustedDesktopOrigin(origin);
+      writeDesktopLogHeader(
+        `media permission request permission=${permission} allowed=${allowed} origin=${sanitizeLogValue(origin || "unknown")} mediaType=${sanitizeLogValue(readPermissionMediaType(details))}`,
+      );
+      callback(allowed);
+    },
+  );
 }
 
 function writeDesktopStreamChunk(
@@ -1316,6 +1414,30 @@ function registerIpcHandlers(): void {
       state: updateState,
     } satisfies DesktopUpdateActionResult;
   });
+
+  ipcMain.removeHandler(MEDIA_ACCESS_STATUS_CHANNEL);
+  ipcMain.handle(MEDIA_ACCESS_STATUS_CHANNEL, async (_event, rawKind: unknown) => {
+    const kind = normalizeMediaAccessKind(rawKind);
+    if (!kind) {
+      return "unknown";
+    }
+    if (process.platform !== "darwin") {
+      return "granted";
+    }
+    return systemPreferences.getMediaAccessStatus(kind);
+  });
+
+  ipcMain.removeHandler(MEDIA_ACCESS_REQUEST_CHANNEL);
+  ipcMain.handle(MEDIA_ACCESS_REQUEST_CHANNEL, async (_event, rawKind: unknown) => {
+    const kind = normalizeMediaAccessKind(rawKind);
+    if (!kind) {
+      return false;
+    }
+    if (process.platform !== "darwin") {
+      return true;
+    }
+    return systemPreferences.askForMediaAccess(kind);
+  });
 }
 
 function getIconOption(): { icon: string } | Record<string, never> {
@@ -1458,6 +1580,7 @@ app
     configureAppIdentity();
     configureApplicationMenu();
     registerDesktopProtocol();
+    configureMediaPermissionHandlers();
     configureAutoUpdater();
     void bootstrap().catch((error) => {
       handleFatalStartupError("bootstrap", error);

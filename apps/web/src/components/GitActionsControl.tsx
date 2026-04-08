@@ -1,4 +1,10 @@
-import type { GitStackedAction, GitStatusResult, ThreadId } from "@t3sparks/contracts";
+import type {
+  GitStackedAction,
+  GitStatusResult,
+  ModelSlug,
+  ProviderKind,
+  ThreadId,
+} from "@t3sparks/contracts";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "lucide-react";
@@ -46,6 +52,8 @@ import { readNativeApi } from "~/nativeApi";
 interface GitActionsControlProps {
   gitCwd: string | null;
   activeThreadId: ThreadId | null;
+  provider: ProviderKind | null;
+  model: ModelSlug | null;
 }
 
 interface PendingDefaultBranchAction {
@@ -138,7 +146,12 @@ function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
   return <InfoIcon className={iconClassName} />;
 }
 
-export default function GitActionsControl({ gitCwd, activeThreadId }: GitActionsControlProps) {
+export default function GitActionsControl({
+  gitCwd,
+  activeThreadId,
+  provider,
+  model,
+}: GitActionsControlProps) {
   const threadToastData = useMemo(
     () => (activeThreadId ? { threadId: activeThreadId } : undefined),
     [activeThreadId],
@@ -234,6 +247,9 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
   const runGitActionWithToast = useCallback(
     async ({
       action,
+      threadId,
+      provider,
+      model,
       commitMessage,
       forcePushOnlyProgress = false,
       onConfirmed,
@@ -244,6 +260,9 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
       progressToastId,
     }: {
       action: GitStackedAction;
+      threadId?: ThreadId | null;
+      provider?: ProviderKind | null;
+      model?: ModelSlug | null;
       commitMessage?: string;
       forcePushOnlyProgress?: boolean;
       onConfirmed?: () => void;
@@ -322,6 +341,9 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
 
       const promise = runImmediateGitActionMutation.mutateAsync({
         action,
+        ...(threadId ? { threadId } : {}),
+        ...(provider ? { provider } : {}),
+        ...(model ? { model } : {}),
         ...(commitMessage ? { commitMessage } : {}),
         ...(featureBranch ? { featureBranch } : {}),
       });
@@ -365,6 +387,9 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
                   onClick: () => {
                     void runGitActionWithToast({
                       action: "commit_push",
+                      threadId: activeThreadId,
+                      ...(provider !== undefined ? { provider } : {}),
+                      ...(model !== undefined ? { model } : {}),
                       forcePushOnlyProgress: true,
                       onConfirmed: closeResultToast,
                       statusOverride: actionStatus,
@@ -393,6 +418,9 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
                         closeResultToast();
                         void runGitActionWithToast({
                           action: "commit_push_pr",
+                          threadId: activeThreadId,
+                          ...(provider !== undefined ? { provider } : {}),
+                          ...(model !== undefined ? { model } : {}),
                           forcePushOnlyProgress: true,
                           statusOverride: actionStatus,
                           isDefaultBranchOverride: actionIsDefaultBranch,
@@ -419,6 +447,9 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
       setPendingDefaultBranchAction,
       threadToastData,
       gitStatusForActions,
+      activeThreadId,
+      provider,
+      model,
     ],
   );
 
@@ -428,12 +459,15 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
     setPendingDefaultBranchAction(null);
     void runGitActionWithToast({
       action,
+      threadId: activeThreadId,
+      ...(provider !== undefined ? { provider } : {}),
+      ...(model !== undefined ? { model } : {}),
       ...(commitMessage ? { commitMessage } : {}),
       forcePushOnlyProgress,
       ...(onConfirmed ? { onConfirmed } : {}),
       skipDefaultBranchPrompt: true,
     });
-  }, [pendingDefaultBranchAction, runGitActionWithToast]);
+  }, [activeThreadId, model, pendingDefaultBranchAction, provider, runGitActionWithToast]);
 
   const checkoutNewBranchAndRunAction = useCallback(
     (actionParams: {
@@ -444,11 +478,14 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
     }) => {
       void runGitActionWithToast({
         ...actionParams,
+        threadId: activeThreadId,
+        provider,
+        model,
         featureBranch: true,
         skipDefaultBranchPrompt: true,
       });
     },
-    [runGitActionWithToast],
+    [activeThreadId, model, provider, runGitActionWithToast],
   );
 
   const checkoutFeatureBranchAndContinuePendingAction = useCallback(() => {
@@ -512,9 +549,23 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
       return;
     }
     if (quickAction.action) {
-      void runGitActionWithToast({ action: quickAction.action });
+      void runGitActionWithToast({
+        action: quickAction.action,
+        threadId: activeThreadId,
+        provider,
+        model,
+      });
     }
-  }, [openExistingPr, pullMutation, quickAction, runGitActionWithToast, threadToastData]);
+  }, [
+    activeThreadId,
+    model,
+    openExistingPr,
+    provider,
+    pullMutation,
+    quickAction,
+    runGitActionWithToast,
+    threadToastData,
+  ]);
 
   const openDialogForMenuItem = useCallback(
     (item: GitActionMenuItem) => {
@@ -524,16 +575,27 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
         return;
       }
       if (item.dialogAction === "push") {
-        void runGitActionWithToast({ action: "commit_push", forcePushOnlyProgress: true });
+        void runGitActionWithToast({
+          action: "commit_push",
+          threadId: activeThreadId,
+          provider,
+          model,
+          forcePushOnlyProgress: true,
+        });
         return;
       }
       if (item.dialogAction === "create_pr") {
-        void runGitActionWithToast({ action: "commit_push_pr" });
+        void runGitActionWithToast({
+          action: "commit_push_pr",
+          threadId: activeThreadId,
+          provider,
+          model,
+        });
         return;
       }
       setIsCommitDialogOpen(true);
     },
-    [openExistingPr, runGitActionWithToast, setIsCommitDialogOpen],
+    [activeThreadId, model, openExistingPr, provider, runGitActionWithToast, setIsCommitDialogOpen],
   );
 
   const runDialogAction = useCallback(() => {
@@ -543,11 +605,17 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
     setDialogCommitMessage("");
     void runGitActionWithToast({
       action: "commit",
+      threadId: activeThreadId,
+      provider,
+      model,
       ...(commitMessage ? { commitMessage } : {}),
     });
   }, [
+    activeThreadId,
     dialogCommitMessage,
     isCommitDialogOpen,
+    model,
+    provider,
     runGitActionWithToast,
     setDialogCommitMessage,
     setIsCommitDialogOpen,

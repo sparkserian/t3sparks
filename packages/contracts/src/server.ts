@@ -119,6 +119,31 @@ export const ServerCheckPathsResult = Schema.Struct({
 });
 export type ServerCheckPathsResult = typeof ServerCheckPathsResult.Type;
 
+export const ServerWarmLocalSpeechModelInput = Schema.Struct({
+  model: TrimmedNonEmptyString,
+});
+export type ServerWarmLocalSpeechModelInput = typeof ServerWarmLocalSpeechModelInput.Type;
+
+export const ServerWarmLocalSpeechModelResult = Schema.Struct({
+  ready: Schema.Boolean,
+});
+export type ServerWarmLocalSpeechModelResult = typeof ServerWarmLocalSpeechModelResult.Type;
+
+export const ServerTranscribeAudioInput = Schema.Struct({
+  provider: Schema.Literals(["local", "together", "elevenlabs"]),
+  apiKey: Schema.String.check(Schema.isMaxLength(4096)),
+  model: TrimmedNonEmptyString,
+  language: Schema.String.check(Schema.isMaxLength(16)),
+  mimeType: Schema.String.check(Schema.isMaxLength(128)),
+  audioBase64: Schema.String,
+});
+export type ServerTranscribeAudioInput = typeof ServerTranscribeAudioInput.Type;
+
+export const ServerTranscribeAudioResult = Schema.Struct({
+  text: Schema.String,
+});
+export type ServerTranscribeAudioResult = typeof ServerTranscribeAudioResult.Type;
+
 export const ServerUpsertKeybindingInput = KeybindingRule;
 export type ServerUpsertKeybindingInput = typeof ServerUpsertKeybindingInput.Type;
 
