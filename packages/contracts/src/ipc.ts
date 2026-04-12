@@ -73,6 +73,9 @@ export interface DesktopUpdateState {
   message: string | null;
   errorContext: "check" | "download" | "install" | null;
   canRetry: boolean;
+  hostArch: string;
+  appArch: string;
+  runningUnderArm64Translation: boolean;
 }
 
 export interface DesktopUpdateActionResult {

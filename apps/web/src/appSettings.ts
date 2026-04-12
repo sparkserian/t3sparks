@@ -34,7 +34,9 @@ const AppServiceTierSchema = Schema.Literals(["auto", "fast", "flex"]);
 const MODELS_WITH_FAST_SUPPORT = new Set(["gpt-5.4"]);
 const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
   codex: new Set(getModelOptions("codex").map((option) => option.slug)),
+  claudeAgent: new Set(getModelOptions("claudeAgent").map((option) => option.slug)),
   gemini: new Set(getModelOptions("gemini").map((option) => option.slug)),
+  githubCopilot: new Set(getModelOptions("githubCopilot").map((option) => option.slug)),
 };
 
 const AppSettingsSchema = Schema.Struct({
@@ -63,6 +65,9 @@ const AppSettingsSchema = Schema.Struct({
   ),
   hasSeenOnboarding: Schema.Boolean.pipe(
     Schema.withConstructorDefault(() => Option.some(false)),
+  ),
+  enableModelSwitchSummary: Schema.Boolean.pipe(
+    Schema.withConstructorDefault(() => Option.some(true)),
   ),
 });
 export type AppSettings = typeof AppSettingsSchema.Type;

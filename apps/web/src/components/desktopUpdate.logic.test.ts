@@ -22,6 +22,9 @@ const baseState: DesktopUpdateState = {
   message: null,
   errorContext: null,
   canRetry: false,
+  hostArch: "arm64",
+  appArch: "arm64",
+  runningUnderArm64Translation: false,
 };
 
 describe("desktop update button state", () => {

@@ -96,6 +96,7 @@ import {
   resolvePlanFollowUpSubmission,
 } from "../proposedPlan";
 import { truncateTitle } from "../truncateTitle";
+import { generateModelSwitchContextSummary } from "~/lib/modelSwitchSummary";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -2757,6 +2758,24 @@ export default function ChatView({ threadId }: ChatViewProps) {
         });
       }
 
+      // Detect model switch and generate context summary before persisting the
+      // new model so we can reference the previous model name.
+      let modelSwitchSummary = "";
+      if (
+        isServerThread &&
+        selectedModel &&
+        serverThread &&
+        selectedModel !== serverThread.model &&
+        activeThread.messages.length > 0 &&
+        settings.enableModelSwitchSummary
+      ) {
+        modelSwitchSummary = generateModelSwitchContextSummary(
+          activeThread.messages,
+          serverThread.model,
+          selectedModel,
+        );
+      }
+
       if (isServerThread) {
         await persistThreadSettingsForNextTurn({
           threadId: threadIdForSend,
@@ -2769,6 +2788,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
       setSendPhase("sending-turn");
       const turnAttachments = await turnAttachmentsPromise;
+      const messageText = modelSwitchSummary
+        ? `${modelSwitchSummary}${trimmed || IMAGE_ONLY_BOOTSTRAP_PROMPT}`
+        : (trimmed || IMAGE_ONLY_BOOTSTRAP_PROMPT);
       await api.orchestration.dispatchCommand({
         type: "thread.turn.start",
         commandId: newCommandId(),
@@ -2776,7 +2798,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         message: {
           messageId: messageIdForSend,
           role: "user",
-          text: trimmed || IMAGE_ONLY_BOOTSTRAP_PROMPT,
+          text: messageText,
           attachments: turnAttachments,
         },
         model: selectedModel || undefined,
@@ -4441,6 +4463,28 @@ const ThreadErrorBanner = memo(function ThreadErrorBanner({ error }: { error: st
   );
 });
 
+const DISMISSED_PROVIDER_BANNER_KEY = "t3sparks:dismissed-provider-banner";
+
+function readDismissedProviderBannerKey(): string | null {
+  try {
+    return window.localStorage.getItem(DISMISSED_PROVIDER_BANNER_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeDismissedProviderBannerKey(key: string | null): void {
+  try {
+    if (key) {
+      window.localStorage.setItem(DISMISSED_PROVIDER_BANNER_KEY, key);
+    } else {
+      window.localStorage.removeItem(DISMISSED_PROVIDER_BANNER_KEY);
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 const ProviderHealthBanner = memo(function ProviderHealthBanner({
   status,
 }: {
@@ -4450,13 +4494,21 @@ const ProviderHealthBanner = memo(function ProviderHealthBanner({
     status && status.status !== "ready"
       ? `${status.provider}:${status.status}:${status.message ?? ""}`
       : null;
-  const [dismissedStatusKey, setDismissedStatusKey] = useState<string | null>(null);
+  const [dismissedStatusKey, setDismissedStatusKey] = useState<string | null>(
+    () => readDismissedProviderBannerKey(),
+  );
 
   useEffect(() => {
     if (!statusKey || (dismissedStatusKey !== null && dismissedStatusKey !== statusKey)) {
       setDismissedStatusKey(null);
+      writeDismissedProviderBannerKey(null);
     }
   }, [dismissedStatusKey, statusKey]);
+
+  const handleDismiss = useCallback(() => {
+    setDismissedStatusKey(statusKey);
+    writeDismissedProviderBannerKey(statusKey);
+  }, [statusKey]);
 
   if (!status || status.status === "ready" || dismissedStatusKey === statusKey) {
     return null;
@@ -4480,7 +4532,7 @@ const ProviderHealthBanner = memo(function ProviderHealthBanner({
         <AlertAction>
           <Button
             aria-label="Dismiss provider status"
-            onClick={() => setDismissedStatusKey(statusKey)}
+            onClick={handleDismiss}
             size="icon-xs"
             variant="ghost"
           >
@@ -5687,7 +5739,9 @@ function getCustomModelOptionsByProvider(settings: {
 }): Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>> {
   return {
     codex: getAppModelOptions("codex", settings.customCodexModels),
+    claudeAgent: getAppModelOptions("claudeAgent", []),
     gemini: getAppModelOptions("gemini", settings.customGeminiModels),
+    githubCopilot: getAppModelOptions("githubCopilot", []),
   };
 }
 
@@ -5709,7 +5763,9 @@ function getCustomModelsForProvider(
 
 const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   codex: OpenAI,
+  claudeAgent: ClaudeAI,
   gemini: Gemini,
+  githubCopilot: OpenAI,
   claudeCode: ClaudeAI,
   cursor: CursorIcon,
 };
