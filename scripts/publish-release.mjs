@@ -38,7 +38,7 @@ const PLATFORM_CONFIG = {
     workflowPlatform: "win",
   },
   linux: {
-    expectedAssetPatterns: [/\.AppImage$/u, /\.blockmap$/u, /^latest-linux\.yml$/u],
+    expectedAssetPatterns: [/\.AppImage$/u, /\.deb$/u, /\.rpm$/u, /^latest-linux\.yml$/u],
     localArgs: [
       "run",
       "scripts/build-desktop-artifact.ts",

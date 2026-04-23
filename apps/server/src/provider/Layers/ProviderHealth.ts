@@ -124,6 +124,18 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
     };
   }
 
+  // Positive-match patterns: if the output explicitly confirms auth, return
+  // early as authenticated. These run after the negative patterns above, so
+  // "not logged in" (which contains "logged in") is already handled.
+  if (
+    lowerOutput.includes("logged in") ||
+    lowerOutput.includes("authenticated") ||
+    lowerOutput.includes("active session") ||
+    lowerOutput.includes("signed in")
+  ) {
+    return { status: "ready", authStatus: "authenticated" };
+  }
+
   const parsedAuth = (() => {
     const trimmed = result.stdout.trim();
     if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
@@ -149,7 +161,10 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
       message: "Codex CLI is not authenticated. Run `codex login` and try again.",
     };
   }
-  if (parsedAuth.attemptedJsonParse) {
+  // If JSON was parsed but no explicit auth marker found, fall through to
+  // the exit-code check below rather than immediately returning "unknown".
+  // A successful exit code (0) strongly indicates the CLI is authenticated.
+  if (parsedAuth.attemptedJsonParse && result.code !== 0) {
     return {
       status: "warning",
       authStatus: "unknown",

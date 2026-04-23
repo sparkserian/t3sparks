@@ -190,6 +190,7 @@ jobs:
             "release/*.exe" \
             "release/*.AppImage" \
             "release/*.deb" \
+            "release/*.rpm" \
             "release/*.blockmap" \
             "release/latest*.yml" \
             "release/latest-linux*.yml"; do
@@ -243,6 +244,8 @@ jobs:
           overwrite_files: true
           files: |
             release-publish/*.AppImage
+            release-publish/*.deb
+            release-publish/*.rpm
             release-publish/*.blockmap
             release-publish/latest-linux*.yml
           fail_on_unmatched_files: true

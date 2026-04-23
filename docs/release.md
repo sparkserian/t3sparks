@@ -72,7 +72,7 @@ What each one does:
   - on macOS/Linux: falls back to GitHub Actions on Windows
 
 - `npm run publish:linux`
-  - on Linux: builds locally, packages Linux `AppImage`, and uploads it
+  - on Linux: builds locally, packages Linux `AppImage`, `deb`, and `rpm`, and uploads them
   - on macOS/Windows: falls back to GitHub Actions on Linux
 
 ## Notes
@@ -81,6 +81,8 @@ What each one does:
 - Do not bump the version again between Mac and Windows.
 - macOS auto-update needs both the `dmg` and the `zip`.
 - Windows auto-update uses the `nsis` target.
+- Linux releases publish `AppImage`, `deb`, and `rpm`.
+- Linux auto-update still expects the `AppImage` build.
 - `publish:*` requires `GH_TOKEN` with release upload access.
 - Publish macOS from a Mac for the fastest path.
 - Publish Windows from Windows or let the script fall back to CI.

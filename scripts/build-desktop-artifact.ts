@@ -44,6 +44,8 @@ interface PlatformConfig {
   readonly archChoices: ReadonlyArray<typeof BuildArch.Type>;
 }
 
+const LINUX_RELEASE_TARGETS = ["AppImage", "deb", "rpm"] as const;
+
 const PLATFORM_CONFIG: Record<typeof BuildPlatform.Type, PlatformConfig> = {
   mac: {
     cliFlag: "--mac",
@@ -485,7 +487,7 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
 
   if (platform === "linux") {
     buildConfig.linux = {
-      target: [target],
+      target: target === "AppImage" ? [...LINUX_RELEASE_TARGETS] : [target],
       icon: "icon.png",
       category: "Development",
     };
