@@ -6,13 +6,14 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime";
-import { memo } from "react";
+import { memo, useState } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
-import { DiffIcon, TerminalSquareIcon } from "lucide-react";
+import { DiffIcon, NotebookPenIcon, TerminalSquareIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
+import ProjectNotesSheet from "../ProjectNotesSheet";
 import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
 import { OpenInPicker } from "./OpenInPicker";
@@ -23,6 +24,7 @@ interface ChatHeaderProps {
   draftId?: DraftId;
   activeThreadTitle: string;
   activeProjectName: string | undefined;
+  activeProjectCwd: string | null;
   isGitRepo: boolean;
   openInCwd: string | null;
   activeProjectScripts: ProjectScript[] | undefined;
@@ -49,6 +51,7 @@ export const ChatHeader = memo(function ChatHeader({
   draftId,
   activeThreadTitle,
   activeProjectName,
+  activeProjectCwd,
   isGitRepo,
   openInCwd,
   activeProjectScripts,
@@ -68,6 +71,8 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleTerminal,
   onToggleDiff,
 }: ChatHeaderProps) {
+  const [notesOpen, setNotesOpen] = useState(false);
+  const notesAvailable = Boolean(activeProjectName && activeProjectCwd);
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
@@ -120,6 +125,28 @@ export const ChatHeader = memo(function ChatHeader({
             render={
               <Toggle
                 className="shrink-0"
+                pressed={notesOpen}
+                onPressedChange={(pressed) => setNotesOpen(pressed)}
+                aria-label="Open project notes"
+                variant="outline"
+                size="xs"
+                disabled={!notesAvailable}
+              >
+                <NotebookPenIcon className="size-3" />
+              </Toggle>
+            }
+          />
+          <TooltipPopup side="bottom">
+            {!notesAvailable
+              ? "Project notes are available once a project is selected."
+              : "Open project notes"}
+          </TooltipPopup>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Toggle
+                className="shrink-0"
                 pressed={terminalOpen}
                 onPressedChange={onToggleTerminal}
                 aria-label="Toggle terminal drawer"
@@ -164,6 +191,14 @@ export const ChatHeader = memo(function ChatHeader({
           </TooltipPopup>
         </Tooltip>
       </div>
+      {notesAvailable && activeProjectCwd && activeProjectName ? (
+        <ProjectNotesSheet
+          open={notesOpen}
+          onOpenChange={setNotesOpen}
+          projectName={activeProjectName}
+          projectCwd={activeProjectCwd}
+        />
+      ) : null}
     </div>
   );
 });
