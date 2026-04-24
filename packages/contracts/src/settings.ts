@@ -6,7 +6,7 @@ import {
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   ProviderOptionSelections,
 } from "./model.ts";
-import { ModelSelection, ProviderKind } from "./orchestration.ts";
+import { ModelSelection, ProviderKind, CustomInstruction, CUSTOM_INSTRUCTION_MAX_COUNT } from "./orchestration.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -34,6 +34,9 @@ export const ClientSettingsSchema = Schema.Struct({
   autoOpenPlanSidebar: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  customInstructions: Schema.Array(CustomInstruction)
+    .check(Schema.isMaxLength(CUSTOM_INSTRUCTION_MAX_COUNT))
+    .pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   diffWordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   favorites: Schema.Array(
     Schema.Struct({
@@ -247,6 +250,9 @@ export const ClientSettingsPatch = Schema.Struct({
   autoOpenPlanSidebar: Schema.optionalKey(Schema.Boolean),
   confirmThreadArchive: Schema.optionalKey(Schema.Boolean),
   confirmThreadDelete: Schema.optionalKey(Schema.Boolean),
+  customInstructions: Schema.optionalKey(
+    Schema.Array(CustomInstruction).check(Schema.isMaxLength(CUSTOM_INSTRUCTION_MAX_COUNT)),
+  ),
   diffWordWrap: Schema.optionalKey(Schema.Boolean),
   favorites: Schema.optionalKey(
     Schema.Array(

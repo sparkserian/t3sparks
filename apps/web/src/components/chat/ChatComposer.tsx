@@ -64,6 +64,7 @@ import { ProviderModelPicker } from "./ProviderModelPicker";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
+import CustomInstructionsControl from "../CustomInstructionsControl";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
@@ -455,6 +456,9 @@ export interface ChatComposerProps {
   handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
   togglePlanSidebar: () => void;
 
+  selectedInstructionIds: readonly string[];
+  onSelectedInstructionIdsChange: (ids: string[]) => void;
+
   focusComposer: () => void;
   scheduleComposerFocus: () => void;
   setThreadError: (threadId: ThreadId | null, error: string | null) => void;
@@ -527,6 +531,8 @@ export const ChatComposer = memo(
       handleRuntimeModeChange,
       handleInteractionModeChange,
       togglePlanSidebar,
+      selectedInstructionIds,
+      onSelectedInstructionIdsChange,
       focusComposer,
       scheduleComposerFocus,
       setThreadError,
@@ -1910,7 +1916,12 @@ export const ChatComposer = memo(
                   />
 
                   {isComposerFooterCompact ? (
-                    <CompactComposerControlsMenu
+                    <>
+                      <CustomInstructionsControl
+                        selectedInstructionIds={selectedInstructionIds}
+                        onSelectedInstructionIdsChange={onSelectedInstructionIdsChange}
+                      />
+                      <CompactComposerControlsMenu
                       activePlan={showPlanSidebarToggle}
                       interactionMode={interactionMode}
                       planSidebarLabel={planSidebarLabel}
@@ -1922,8 +1933,13 @@ export const ChatComposer = memo(
                       onTogglePlanSidebar={togglePlanSidebar}
                       onRuntimeModeChange={handleRuntimeModeChange}
                     />
+                    </>
                   ) : (
                     <>
+                      <CustomInstructionsControl
+                        selectedInstructionIds={selectedInstructionIds}
+                        onSelectedInstructionIdsChange={onSelectedInstructionIdsChange}
+                      />
                       {providerTraitsPicker ? (
                         <>
                           <Separator

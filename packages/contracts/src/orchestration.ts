@@ -78,6 +78,25 @@ export const ModelSelection = Schema.Union([
 ]);
 export type ModelSelection = typeof ModelSelection.Type;
 
+// ── Custom Instructions ────────────────────────────────────────
+
+export const CUSTOM_INSTRUCTION_MAX_COUNT = 32;
+export const CUSTOM_INSTRUCTION_ID_MAX_CHARS = 128;
+export const CUSTOM_INSTRUCTION_TITLE_MAX_CHARS = 120;
+export const CUSTOM_INSTRUCTION_BODY_MAX_CHARS = 4_000;
+
+export const CustomInstructionId = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(CUSTOM_INSTRUCTION_ID_MAX_CHARS),
+);
+export type CustomInstructionId = typeof CustomInstructionId.Type;
+
+export const CustomInstruction = Schema.Struct({
+  id: CustomInstructionId,
+  title: TrimmedNonEmptyString.check(Schema.isMaxLength(CUSTOM_INSTRUCTION_TITLE_MAX_CHARS)),
+  body: TrimmedNonEmptyString.check(Schema.isMaxLength(CUSTOM_INSTRUCTION_BODY_MAX_CHARS)),
+});
+export type CustomInstruction = typeof CustomInstruction.Type;
+
 export const RuntimeMode = Schema.Literals([
   "approval-required",
   "auto-accept-edits",

@@ -115,6 +115,8 @@ import {
 import { newCommandId, newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
 import { useSettings } from "../hooks/useSettings";
+import { useSelectedInstructionIds } from "~/selectedCustomInstructions";
+import { resolveSelectedCustomInstructions } from "~/customInstructions";
 import { resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { deriveLogicalProjectKeyFromSettings } from "../logicalProject";
@@ -598,6 +600,22 @@ export default function ChatView(props: ChatViewProps) {
     [environmentId, threadId],
   );
   const routeThreadKey = useMemo(() => scopedThreadKey(routeThreadRef), [routeThreadRef]);
+  const instructionSelectionKey =
+    routeKind === "server" ? routeThreadKey : `draft:${props.draftId}`;
+  const { selectedIds: selectedInstructionIds, setSelectedIds: setSelectedInstructionIds } =
+    useSelectedInstructionIds(instructionSelectionKey);
+  const customInstructionLibrary = useSettings((s) => s.customInstructions);
+  const resolvedCustomInstructions = useMemo(
+    () => resolveSelectedCustomInstructions(customInstructionLibrary, selectedInstructionIds),
+    [customInstructionLibrary, selectedInstructionIds],
+  );
+  const customInstructionsPrefix = useMemo(() => {
+    if (resolvedCustomInstructions.length === 0) return "";
+    const blocks = resolvedCustomInstructions.map(
+      (instruction) => `## ${instruction.title}\n${instruction.body}`,
+    );
+    return `[Custom instructions]\n${blocks.join("\n\n")}\n\n`;
+  }, [resolvedCustomInstructions]);
   const composerDraftTarget: ScopedThreadRef | DraftId =
     routeKind === "server" ? routeThreadRef : props.draftId;
   const serverThread = useStore(
@@ -2474,6 +2492,9 @@ export default function ChatView(props: ChatViewProps) {
       promptForSend,
       composerTerminalContextsSnapshot,
     );
+    const messageTextWithInstructions = customInstructionsPrefix
+      ? `${customInstructionsPrefix}${messageTextForSend}`
+      : messageTextForSend;
     const messageIdForSend = newMessageId();
     const messageCreatedAt = new Date().toISOString();
     const outgoingMessageText = formatOutgoingPrompt({
@@ -2481,7 +2502,7 @@ export default function ChatView(props: ChatViewProps) {
       model: ctxSelectedModel,
       models: ctxSelectedProviderModels,
       effort: ctxSelectedPromptEffort,
-      text: messageTextForSend || IMAGE_ONLY_BOOTSTRAP_PROMPT,
+      text: messageTextWithInstructions || IMAGE_ONLY_BOOTSTRAP_PROMPT,
     });
     const turnAttachmentsPromise = Promise.all(
       composerImagesSnapshot.map(async (image) => ({
@@ -3395,6 +3416,8 @@ export default function ChatView(props: ChatViewProps) {
               handleRuntimeModeChange={handleRuntimeModeChange}
               handleInteractionModeChange={handleInteractionModeChange}
               togglePlanSidebar={togglePlanSidebar}
+              selectedInstructionIds={selectedInstructionIds}
+              onSelectedInstructionIdsChange={setSelectedInstructionIds}
               focusComposer={focusComposer}
               scheduleComposerFocus={scheduleComposerFocus}
               setThreadError={setThreadError}
