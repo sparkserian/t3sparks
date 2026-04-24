@@ -65,6 +65,7 @@ import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommand
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import CustomInstructionsControl from "../CustomInstructionsControl";
+import ConvexControl from "../ConvexControl";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
@@ -459,6 +460,22 @@ export interface ChatComposerProps {
   selectedInstructionIds: readonly string[];
   onSelectedInstructionIdsChange: (ids: string[]) => void;
 
+  convexControlProps: {
+    environmentId: EnvironmentId | null;
+    threadId: ThreadId | null;
+    cwd: string | null;
+    terminalIds: ReadonlyArray<string>;
+    runningTerminalIds: ReadonlyArray<string>;
+    onRunCommand: (input: {
+      command: string;
+      cwd: string;
+      preferredTerminalId: string;
+      preferNewTerminal?: boolean;
+    }) => Promise<string | null>;
+    onFocusTerminal: (terminalId: string) => void;
+    onCloseTerminal: (terminalId: string) => void;
+  };
+
   focusComposer: () => void;
   scheduleComposerFocus: () => void;
   setThreadError: (threadId: ThreadId | null, error: string | null) => void;
@@ -533,6 +550,7 @@ export const ChatComposer = memo(
       togglePlanSidebar,
       selectedInstructionIds,
       onSelectedInstructionIdsChange,
+      convexControlProps,
       focusComposer,
       scheduleComposerFocus,
       setThreadError,
@@ -1921,6 +1939,7 @@ export const ChatComposer = memo(
                         selectedInstructionIds={selectedInstructionIds}
                         onSelectedInstructionIdsChange={onSelectedInstructionIdsChange}
                       />
+                      <ConvexControl {...convexControlProps} />
                       <CompactComposerControlsMenu
                       activePlan={showPlanSidebarToggle}
                       interactionMode={interactionMode}
@@ -1940,6 +1959,7 @@ export const ChatComposer = memo(
                         selectedInstructionIds={selectedInstructionIds}
                         onSelectedInstructionIdsChange={onSelectedInstructionIdsChange}
                       />
+                      <ConvexControl {...convexControlProps} />
                       {providerTraitsPicker ? (
                         <>
                           <Separator

@@ -103,6 +103,7 @@ import {
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
+import { ConvexLive } from "./convex/Layers/Convex.ts";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
 
@@ -201,6 +202,7 @@ const workspaceAndProjectServicesLayer = Layer.mergeAll(
     Layer.provide(WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive))),
   ),
   ProjectFaviconResolverLive,
+  ConvexLive,
 );
 
 const browserOtlpTracingLayer = Layer.mergeAll(
@@ -395,6 +397,7 @@ const buildAppUnderTest = (options?: {
         Layer.provide(workspaceEntriesLayer),
       ),
       ProjectFaviconResolverLive,
+      ConvexLive,
     );
     const gitStatusBroadcasterLayer = options?.layers?.gitStatusBroadcaster
       ? Layer.mock(GitStatusBroadcaster)({

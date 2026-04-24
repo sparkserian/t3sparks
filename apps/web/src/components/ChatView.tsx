@@ -1752,6 +1752,83 @@ export default function ChatView(props: ChatViewProps) {
     ],
   );
 
+  const focusTerminal = useCallback(
+    (terminalId: string) => {
+      if (!activeThreadRef) return;
+      storeSetActiveTerminal(activeThreadRef, terminalId);
+      setTerminalOpen(true);
+      setTerminalFocusRequestId((value) => value + 1);
+    },
+    [activeThreadRef, setTerminalOpen, storeSetActiveTerminal],
+  );
+
+  const runConvexCommand = useCallback(
+    async (input: {
+      command: string;
+      cwd: string;
+      preferredTerminalId: string;
+      preferNewTerminal?: boolean;
+    }): Promise<string | null> => {
+      const api = readEnvironmentApi(environmentId);
+      if (!api || !activeThreadId || !activeThreadRef || !activeThread) return null;
+      const existing = terminalState.terminalIds.includes(input.preferredTerminalId);
+      const targetTerminalId = input.preferredTerminalId;
+      const targetWorktreePath = activeThread.worktreePath ?? null;
+
+      setTerminalLaunchContext({
+        threadId: activeThreadId,
+        cwd: input.cwd,
+        worktreePath: targetWorktreePath,
+      });
+      setTerminalOpen(true);
+
+      if (!existing) {
+        storeNewTerminal(activeThreadRef, targetTerminalId);
+      } else if (input.preferNewTerminal) {
+        storeCloseTerminal(activeThreadRef, targetTerminalId);
+        storeNewTerminal(activeThreadRef, targetTerminalId);
+      } else {
+        storeSetActiveTerminal(activeThreadRef, targetTerminalId);
+      }
+      setTerminalFocusRequestId((value) => value + 1);
+
+      try {
+        if (!existing || input.preferNewTerminal) {
+          await api.terminal.open({
+            threadId: activeThreadId,
+            terminalId: targetTerminalId,
+            cwd: input.cwd,
+            ...(targetWorktreePath !== null ? { worktreePath: targetWorktreePath } : {}),
+          });
+        }
+        await api.terminal.write({
+          threadId: activeThreadId,
+          terminalId: targetTerminalId,
+          data: `${input.command}\r`,
+        });
+        return targetTerminalId;
+      } catch (error) {
+        setThreadError(
+          activeThreadId,
+          error instanceof Error ? error.message : "Failed to run Convex command.",
+        );
+        return null;
+      }
+    },
+    [
+      activeThread,
+      activeThreadId,
+      activeThreadRef,
+      environmentId,
+      setTerminalOpen,
+      setThreadError,
+      storeCloseTerminal,
+      storeNewTerminal,
+      storeSetActiveTerminal,
+      terminalState.terminalIds,
+    ],
+  );
+
   const persistProjectScripts = useCallback(
     async (input: {
       projectId: ProjectId;
@@ -3418,6 +3495,16 @@ export default function ChatView(props: ChatViewProps) {
               togglePlanSidebar={togglePlanSidebar}
               selectedInstructionIds={selectedInstructionIds}
               onSelectedInstructionIdsChange={setSelectedInstructionIds}
+              convexControlProps={{
+                environmentId,
+                threadId: activeThreadId ?? null,
+                cwd: gitCwd ?? activeProject?.cwd ?? null,
+                terminalIds: terminalState.terminalIds,
+                runningTerminalIds: terminalState.runningTerminalIds,
+                onRunCommand: runConvexCommand,
+                onFocusTerminal: focusTerminal,
+                onCloseTerminal: closeTerminal,
+              }}
               focusComposer={focusComposer}
               scheduleComposerFocus={scheduleComposerFocus}
               setThreadError={setThreadError}

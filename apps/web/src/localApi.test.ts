@@ -54,6 +54,9 @@ const rpcClientMock = {
   filesystem: {
     browse: vi.fn(),
   },
+  convex: {
+    status: vi.fn(),
+  },
   shell: {
     openInEditor: vi.fn(),
   },

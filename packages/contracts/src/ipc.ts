@@ -19,6 +19,7 @@ import type {
   GitCreateBranchResult,
 } from "./git.ts";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem.ts";
+import type { ConvexStatusInput, ConvexStatusResult } from "./convex.ts";
 import type {
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
@@ -247,6 +248,9 @@ export interface EnvironmentApi {
   };
   filesystem: {
     browse: (input: FilesystemBrowseInput) => Promise<FilesystemBrowseResult>;
+  };
+  convex: {
+    status: (input: ConvexStatusInput) => Promise<ConvexStatusResult>;
   };
   git: {
     listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResult>;

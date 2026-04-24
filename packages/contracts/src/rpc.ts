@@ -10,6 +10,11 @@ import {
   FilesystemBrowseError,
 } from "./filesystem.ts";
 import {
+  ConvexStatusInput,
+  ConvexStatusResult,
+  ConvexStatusError,
+} from "./convex.ts";
+import {
   GitActionProgressEvent,
   GitCheckoutInput,
   GitCheckoutResult,
@@ -90,6 +95,9 @@ export const WS_METHODS = {
 
   // Filesystem methods
   filesystemBrowse: "filesystem.browse",
+
+  // Convex methods
+  convexStatus: "convex.status",
 
   // Git methods
   gitPull: "git.pull",
@@ -177,6 +185,12 @@ export const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
   payload: FilesystemBrowseInput,
   success: FilesystemBrowseResult,
   error: FilesystemBrowseError,
+});
+
+export const WsConvexStatusRpc = Rpc.make(WS_METHODS.convexStatus, {
+  payload: ConvexStatusInput,
+  success: ConvexStatusResult,
+  error: ConvexStatusError,
 });
 
 export const WsSubscribeGitStatusRpc = Rpc.make(WS_METHODS.subscribeGitStatus, {
@@ -365,6 +379,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
+  WsConvexStatusRpc,
   WsSubscribeGitStatusRpc,
   WsGitPullRpc,
   WsGitRefreshStatusRpc,

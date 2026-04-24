@@ -71,6 +71,9 @@ export interface WsRpcClient {
   readonly filesystem: {
     readonly browse: RpcUnaryMethod<typeof WS_METHODS.filesystemBrowse>;
   };
+  readonly convex: {
+    readonly status: RpcUnaryMethod<typeof WS_METHODS.convexStatus>;
+  };
   readonly shell: {
     readonly openInEditor: (input: {
       readonly cwd: Parameters<LocalApi["shell"]["openInEditor"]>[0];
@@ -150,6 +153,9 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
     },
     filesystem: {
       browse: (input) => transport.request((client) => client[WS_METHODS.filesystemBrowse](input)),
+    },
+    convex: {
+      status: (input) => transport.request((client) => client[WS_METHODS.convexStatus](input)),
     },
     shell: {
       openInEditor: (input) =>
