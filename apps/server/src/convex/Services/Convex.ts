@@ -4,11 +4,7 @@
 import { Context } from "effect";
 import type { Effect } from "effect";
 
-import type {
-  ConvexStatusError,
-  ConvexStatusInput,
-  ConvexStatusResult,
-} from "@t3tools/contracts";
+import type { ConvexStatusError, ConvexStatusInput, ConvexStatusResult } from "@t3tools/contracts";
 
 export interface ConvexShape {
   readonly getStatus: (
@@ -16,6 +12,4 @@ export interface ConvexShape {
   ) => Effect.Effect<ConvexStatusResult, ConvexStatusError>;
 }
 
-export class Convex extends Context.Service<Convex, ConvexShape>()(
-  "t3/convex/Services/Convex",
-) {}
+export class Convex extends Context.Service<Convex, ConvexShape>()("t3/convex/Services/Convex") {}

@@ -9,11 +9,7 @@ import {
   FilesystemBrowseResult,
   FilesystemBrowseError,
 } from "./filesystem.ts";
-import {
-  ConvexStatusInput,
-  ConvexStatusResult,
-  ConvexStatusError,
-} from "./convex.ts";
+import { ConvexStatusInput, ConvexStatusResult, ConvexStatusError } from "./convex.ts";
 import {
   GitActionProgressEvent,
   GitCheckoutInput,

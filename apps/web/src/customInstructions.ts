@@ -17,9 +17,7 @@ function trimToNull(value: unknown, maxLength: number): string | null {
   return trimmed;
 }
 
-export function normalizeCustomInstructions(
-  instructions: Iterable<unknown>,
-): CustomInstruction[] {
+export function normalizeCustomInstructions(instructions: Iterable<unknown>): CustomInstruction[] {
   const normalized: CustomInstruction[] = [];
   const seenIds = new Set<string>();
 
@@ -81,10 +79,7 @@ export function resolveSelectedCustomInstructions(
   return resolved;
 }
 
-export function summarizeCustomInstructionBody(
-  body: string,
-  maxChars = 96,
-): string {
+export function summarizeCustomInstructionBody(body: string, maxChars = 96): string {
   const normalized = body.replace(/\s+/g, " ").trim();
   if (normalized.length <= maxChars) {
     return normalized;

@@ -42,12 +42,16 @@ class OpenCodeTextGen extends Context.Service<OpenCodeTextGen, TextGenerationSha
 // ---------------------------------------------------------------------------
 
 const makeRoutingTextGeneration = Effect.gen(function* () {
+  const codexGen = yield* CodexTextGen;
   const byProvider = {
-    codex: yield* CodexTextGen,
+    codex: codexGen,
     claudeAgent: yield* ClaudeTextGen,
     cursor: yield* CursorTextGen,
     opencode: yield* OpenCodeTextGen,
-  };
+    // GitHub Copilot does not yet provide a dedicated text-generation CLI
+    // mode; route its internal git/commit/PR text generation through Codex.
+    githubCopilot: codexGen,
+  } as const;
 
   return {
     generateCommitMessage: (input) =>

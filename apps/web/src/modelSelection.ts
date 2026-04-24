@@ -159,6 +159,12 @@ export function getCustomModelOptionsByProvider(
       "opencode",
       selectedProvider === "opencode" ? selectedModel : undefined,
     ),
+    githubCopilot: getAppModelOptions(
+      settings,
+      providers,
+      "githubCopilot",
+      selectedProvider === "githubCopilot" ? selectedModel : undefined,
+    ),
   };
 }
 

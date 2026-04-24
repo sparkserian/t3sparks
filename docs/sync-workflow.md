@@ -10,11 +10,11 @@ To make all three possible at once, this fork uses a **two-branch model**.
 
 ## Branches
 
-| Branch | Role | Update rule |
-| --- | --- | --- |
-| `main` | Clean mirror of `upstream/main`. Never carries T3 Sparks-only commits. | Only moves via `git merge --ff-only upstream/main`. |
-| `features/t3sparks` | Long-lived branch carrying all T3 Sparks additions on top of `main`. Releases are cut from here. | **Rebased** onto `main` after every upstream sync. |
-| `backup/pre-resync-<date>` / `backup/pre-resync-<date>-stash` | Safety snapshots taken before destructive operations. | Never deleted. |
+| Branch                                                        | Role                                                                                             | Update rule                                         |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| `main`                                                        | Clean mirror of `upstream/main`. Never carries T3 Sparks-only commits.                           | Only moves via `git merge --ff-only upstream/main`. |
+| `features/t3sparks`                                           | Long-lived branch carrying all T3 Sparks additions on top of `main`. Releases are cut from here. | **Rebased** onto `main` after every upstream sync.  |
+| `backup/pre-resync-<date>` / `backup/pre-resync-<date>-stash` | Safety snapshots taken before destructive operations.                                            | Never deleted.                                      |
 
 ### Why this shape?
 
@@ -74,7 +74,7 @@ When a rebase conflict happens, the resolver (human or agent) should:
 
 1. Read the offending feature commit message to understand intent.
 2. Open the reference snapshot for the affected files as a ground-truth implementation.
-3. Re-apply the feature onto the new upstream code, preserving *intent*, not byte-for-byte diffs. Upstream may have refactored the surrounding code; follow upstream's new shape.
+3. Re-apply the feature onto the new upstream code, preserving _intent_, not byte-for-byte diffs. Upstream may have refactored the surrounding code; follow upstream's new shape.
 4. Re-run lint / typecheck / test before continuing the rebase.
 
 If a feature commit needs a significant rewrite to fit new upstream code, amend it in place (`git commit --amend` or `git rebase -i`) — don't add a "fixup" commit on top. The goal is always: one clean commit per feature.

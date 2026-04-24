@@ -228,9 +228,7 @@ export function updateProjectNote(
           ? note.title
           : normalizeProjectNoteTitle(changes.title) || "Untitled note",
       content:
-        changes.content === undefined
-          ? note.content
-          : normalizeProjectNoteContent(changes.content),
+        changes.content === undefined ? note.content : normalizeProjectNoteContent(changes.content),
       updatedAt: new Date().toISOString(),
     };
     return nextNote;
@@ -290,9 +288,7 @@ function subscribeProjectNotes(listener: () => void): () => void {
   };
 }
 
-export function useProjectNotes(
-  projectCwd: string | null | undefined,
-): readonly ProjectNote[] {
+export function useProjectNotes(projectCwd: string | null | undefined): readonly ProjectNote[] {
   return useSyncExternalStore(
     subscribeProjectNotes,
     () => getProjectNotesSnapshot(projectCwd),

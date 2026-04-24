@@ -171,9 +171,7 @@ export default function ProjectNotesSheet({
                   note={note}
                   onDelete={() => {
                     deleteProjectNote(projectCwd, note.id);
-                    setExpandedNoteIds((current) =>
-                      current.filter((noteId) => noteId !== note.id),
-                    );
+                    setExpandedNoteIds((current) => current.filter((noteId) => noteId !== note.id));
                   }}
                   onToggle={() => {
                     setExpandedNoteIds((current) =>
@@ -239,9 +237,7 @@ function ProjectNoteCard({
             <FileTextIcon className="size-3.5 text-muted-foreground" />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium text-foreground">
-              {note.title}
-            </span>
+            <span className="block truncate text-sm font-medium text-foreground">{note.title}</span>
             <span className="mt-1 block truncate text-xs text-muted-foreground">
               {notePreview(note.content)}
             </span>

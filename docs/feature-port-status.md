@@ -15,7 +15,7 @@ This document tracks the port of features from the pre-fork snapshot
    selected instruction bodies prepended to outgoing user prompt. Stored in
    `ClientSettings.customInstructions` (contracts) + localStorage thread
    selection (`apps/web/src/selectedCustomInstructions.ts`). Commit: `d6dd94bd`.
-5. **Convex controls.** Full stack port:
+4. **Convex controls.** Full stack port:
    - `packages/contracts/src/convex.ts` — ConvexStatusInput/Result + error.
    - `WsConvexStatusRpc` registered under `WS_METHODS.convexStatus`; surfaced
      on `EnvironmentApi` as `convex.status`.
@@ -28,59 +28,61 @@ This document tracks the port of features from the pre-fork snapshot
      helpers that route actions into the `convex-dev` / `convex-task`
      terminal IDs. Commit: `11ee68ef`.
 
+5. **GitHub Copilot CLI provider (scaffold).** Provider discovery,
+   contracts, and UI wiring shipped; ACP streaming runtime deferred.
+   - `packages/contracts`: widened `ProviderKind` with `"githubCopilot"`;
+     added `GithubCopilotModelSelection`, `GithubCopilotSettings`
+     (enabled/binaryPath/customModels) + patch, plumbed into
+     `ServerSettings.providers` + `ModelSelectionPatch`;
+     `DEFAULT_MODEL_BY_PROVIDER.githubCopilot = "auto"`,
+     `PROVIDER_DISPLAY_NAMES.githubCopilot = "GitHub Copilot"`.
+   - `apps/server`:
+     `provider/Services/GithubCopilot{Provider,Adapter}.ts` service tags;
+     `provider/Layers/GithubCopilotProvider.ts` — settings-driven snapshot
+     layer (enabled / disabled / configured) using `makeManagedServerProvider`;
+     `provider/Layers/GithubCopilotAdapter.ts` — scaffold adapter whose
+     runtime paths (`startSession`, `sendTurn`, `respondToRequest`,
+     `respondToUserInput`, `interruptTurn`) return `ProviderAdapterRequestError`
+     with a clear "not yet ported" detail while `stopSession`,
+     `listSessions`, `hasSession`, `readThread`, and `rollbackThread` behave
+     as a no-session adapter; wired into `builtInProviderCatalog.ts`,
+     `ProviderRegistry.ts`, `ProviderAdapterRegistry.ts`,
+     `RoutingTextGeneration.ts` (Copilot text-gen fallbacks to Codex),
+     `providerStatusCache.ts`, `serverSettings.ts PROVIDER_ORDER`, and
+     `server.ts` runtime layer composition.
+   - `apps/web`: exhaustive switches updated in `modelSelection.ts`,
+     `providerIconUtils.ts`, `ChatComposer.tsx`, `ProviderModelPicker.browser.tsx`,
+     `KeybindingsToast.browser.tsx`, and `SettingsPanels.tsx`.
+   - Follow-up session: port ACP runtime (model after `CursorAdapter.ts` +
+     `CursorAcpSupport.ts`, swap `buildCursorAcpSpawnInput` for
+     `copilot --acp --stdio` and Copilot's auth method id); port
+     `copilotProviderStatus.ts` status projection; richer binary resolver
+     (walk node_modules for `@github/copilot-sdk` platform package).
+
 ## Already present upstream (no port required)
 
 4. **Terminal drawer.** `apps/web/src/components/ThreadTerminalDrawer.tsx`
    already exists in upstream and is larger (1353 LOC) than the snapshot
    reference (968 LOC). Upstream version is authoritative.
-6. **Desktop self-update.** `apps/desktop/src/updateMachine.ts`,
+5. **Desktop self-update.** `apps/desktop/src/updateMachine.ts`,
    `updateState.ts`, `updateChannels.ts` + `apps/web/src/components/desktopUpdate.logic.ts`
-   + `apps/web/src/lib/desktopUpdateReactQuery.ts` all present upstream.
-8. **Release scripts & multi-platform.** `.github/workflows/release.yml`
+   - `apps/web/src/lib/desktopUpdateReactQuery.ts` all present upstream.
+6. **Release scripts & multi-platform.** `.github/workflows/release.yml`
    already builds mac / linux / win via matrix.
 
 ## Deferred (next session)
 
-7. **GitHub Copilot CLI provider.** The largest port; needs its own session.
-   Current upstream has drifted substantially from the snapshot:
-   - `ProviderKind` is `"codex" | "claudeAgent" | "cursor" | "opencode"` in
-     upstream — the snapshot also has `"githubCopilot"` but all supporting
-     infrastructure (model slugs, provider options, adapter registry, model
-     picker, provider trait pickers) is new.
-   - `packages/shared/src/model.ts` has diverged entirely. Upstream uses
-     `ProviderOptionDescriptor`/`ProviderOptionSelection` capability model;
-     snapshot uses static `MODEL_OPTIONS_BY_PROVIDER` tables. Copilot helpers
-     (`fromGitHubCopilotModelId`, `toGitHubCopilotModelId`,
-     `GITHUB_COPILOT_MODEL_PREFIX`) must be re-expressed in the new model.
-   - Adapter is 1253 LOC and depends on `@agentclientprotocol/sdk` (new
-     dependency not currently in upstream) plus snapshot Effect service tags.
-   - Needs full exhaustive-switch audit across ~51 files that reference
-     `ProviderKind`, once widened.
-
-   Plan (full session):
-   1. Contracts: widen `ProviderKind` with `"githubCopilot"`; add
-      `CopilotModelSelection` to `ModelSelection` union; add provider
-      options (binaryPath, auth) to `provider.ts`.
-   2. Add `@agentclientprotocol/sdk` to `apps/server/package.json`.
-   3. Port `packages/shared/src/model.ts` Copilot helpers as additions
-      compatible with the current capability model.
-   4. Port pure server files: `copilotBinary.ts`, `copilotAdapter.logic.ts`
-      (≈320 LOC combined, no Effect layer dependencies).
-   5. Port `apps/server/src/provider/Layers/CopilotAdapter.ts` — reshape to
-      match current `OpenCodeAdapter.ts` / `CursorAdapter.ts` service tag
-      pattern. Most ACP stream handling logic should survive.
-   6. Add `CopilotProvider.ts` layer (model after `OpenCodeProvider.ts`).
-   7. Register in `ProviderAdapterRegistry.ts`.
-   8. Port `apps/web/src/components/copilotProviderStatus.ts` + test.
-   9. Extend model picker + provider switcher + `DEFAULT_MODEL_BY_PROVIDER`
-      to include Copilot.
-   10. Walk every exhaustive `switch (providerKind)` and add the new case.
-   11. Typecheck web + server + contracts + desktop; run `bun run test` for
-       targeted test files.
+7. **GitHub Copilot CLI — ACP streaming runtime.** Scaffold has shipped
+   (see #5 above); replace the scaffold adapter runtime with a real ACP
+   session implementation. Template: `apps/server/src/provider/Layers/CursorAdapter.ts`
+   + `apps/server/src/provider/acp/CursorAcpSupport.ts` — swap spawn command
+   to `copilot --acp --stdio`, adapt auth method id, reuse shared ACP
+   stream plumbing.
 
 ## Sync playbook
 
 See `sync-workflow.md`. After each upstream pull:
+
 1. `git fetch upstream && git checkout main && git merge --ff-only upstream/main && git push origin main`
 2. `git checkout features/t3sparks && git rebase main`
 3. Resolve conflicts feature-by-feature; lint + typecheck + test.

@@ -64,10 +64,7 @@ export function getSelectedInstructionIds(threadKey: string): readonly string[] 
 export function setSelectedInstructionIds(threadKey: string, ids: readonly string[]): void {
   const normalized = normalizeSelectedCustomInstructionIds(ids);
   const current = snapshot[threadKey] ?? [];
-  if (
-    current.length === normalized.length &&
-    current.every((v, i) => v === normalized[i])
-  ) {
+  if (current.length === normalized.length && current.every((v, i) => v === normalized[i])) {
     return;
   }
   if (normalized.length === 0) {
@@ -80,9 +77,7 @@ export function setSelectedInstructionIds(threadKey: string, ids: readonly strin
   emit();
 }
 
-export function useSelectedInstructionIds(
-  threadKey: string,
-): {
+export function useSelectedInstructionIds(threadKey: string): {
   selectedIds: readonly string[];
   setSelectedIds: (ids: readonly string[]) => void;
 } {

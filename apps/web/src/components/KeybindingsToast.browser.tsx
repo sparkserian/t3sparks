@@ -107,6 +107,11 @@ function createBaseServerConfig(): ServerConfig {
           serverPassword: "",
           customModels: [],
         },
+        githubCopilot: {
+          enabled: true,
+          binaryPath: "",
+          customModels: [],
+        },
       },
     },
   };

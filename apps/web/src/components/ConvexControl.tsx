@@ -211,9 +211,7 @@ export default function ConvexControl({
               Runs `npm install convex`, `npx convex dev`, and `npx convex deploy`
             </div>
           </div>
-          {busy ? (
-            <LoaderCircleIcon className="text-muted-foreground size-4 animate-spin" />
-          ) : null}
+          {busy ? <LoaderCircleIcon className="text-muted-foreground size-4 animate-spin" /> : null}
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2 text-xs">

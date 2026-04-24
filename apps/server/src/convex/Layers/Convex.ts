@@ -9,7 +9,7 @@ import {
   type ConvexPackageManager,
   type ConvexStatusResult,
 } from "@t3tools/contracts";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 
 import { Convex, type ConvexShape } from "../Services/Convex.ts";
 
@@ -182,7 +182,7 @@ const makeConvex = Effect.sync(() => {
           } satisfies ConvexStatusResult;
         },
         catch: (cause) =>
-          cause instanceof ConvexStatusError
+          Schema.is(ConvexStatusError)(cause)
             ? cause
             : new ConvexStatusError({
                 message: "Unable to determine Convex project status.",
